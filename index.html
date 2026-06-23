@@ -345,61 +345,63 @@ function hexDistance(q1, r1, q2, r2) {
   return (Math.abs(q1-q2) + Math.abs(q1+r1-q2-r2) + Math.abs(r1-r2)) / 2;
 }
 
-function placeCores() {
-  // Collect outer ring cells (distance 4–6 from center) as spawn candidates
+function shuffle(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+function scatterNeutralCores() {
+  // Place 12 neutral cores (player=0, isCore=true) spread across the board
+  const candidates = [];
+  for (const [k, cell] of GS.grid) {
+    const d = hexDistance(0, 0, cell.q, cell.r);
+    if (d >= 1 && d <= 5) candidates.push({ q: cell.q, r: cell.r });
+  }
+  shuffle(candidates);
+
+  // Pick 12 positions with minimum distance 2 apart
+  const chosen = [];
+  for (const c of candidates) {
+    if (chosen.every(x => hexDistance(x.q, x.r, c.q, c.r) >= 2)) {
+      chosen.push(c);
+      if (chosen.length === 12) break;
+    }
+  }
+  chosen.forEach(pos => {
+    const cell = GS.grid.get(key(pos.q, pos.r));
+    cell.isCore = true; // player stays 0 = unclaimed
+  });
+}
+
+function placeStartingPieces() {
+  // Each player gets 1 normal piece on outer ring, well separated
   const outerCells = [];
   for (const [k, cell] of GS.grid) {
     const d = hexDistance(0, 0, cell.q, cell.r);
-    if (d >= 4) outerCells.push({ q: cell.q, r: cell.r });
+    if (d >= 4 && cell.player === 0 && !cell.isCore) outerCells.push({ q: cell.q, r: cell.r });
   }
+  shuffle(outerCells);
 
-  // Shuffle outer ring
-  for (let i = outerCells.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [outerCells[i], outerCells[j]] = [outerCells[j], outerCells[i]];
-  }
-
-  // Pick 4 spawn anchors with minimum separation (distance ≥ 5 apart)
   const anchors = [];
-  const MIN_DIST = 5;
-  for (const candidate of outerCells) {
-    if (anchors.every(a => hexDistance(a.q, a.r, candidate.q, candidate.r) >= MIN_DIST)) {
-      anchors.push(candidate);
+  for (const c of outerCells) {
+    if (anchors.every(a => hexDistance(a.q, a.r, c.q, c.r) >= 5)) {
+      anchors.push(c);
       if (anchors.length === 4) break;
     }
   }
-
-  // Fallback: relax distance if we can't find 4 well-separated anchors
-  if (anchors.length < 4) {
-    for (const candidate of outerCells) {
-      if (anchors.find(a => a.q === candidate.q && a.r === candidate.r)) continue;
-      anchors.push(candidate);
-      if (anchors.length === 4) break;
-    }
+  // Fallback
+  for (const c of outerCells) {
+    if (anchors.length >= 4) break;
+    if (!anchors.find(a => a.q === c.q && a.r === c.r)) anchors.push(c);
   }
 
-  // For each player, place 3 pieces (cores first) clustered around their anchor
   for (let p = 1; p <= 4; p++) {
-    const anchor = anchors[p - 1];
-    const placed = [];
-
-    // Anchor itself = first core
-    const anchorCell = GS.grid.get(key(anchor.q, anchor.r));
-    anchorCell.player = p;
-    anchorCell.isCore = true;
-    placed.push(anchor);
-
-    // Fill remaining 2 pieces from neighbors of anchor, preferring empty cells
-    const nbQueue = [...neighbors(anchor.q, anchor.r)];
-    for (const nb of nbQueue) {
-      if (placed.length >= GS.config.coresPerPlayer) break;
-      const nc = GS.grid.get(key(nb.q, nb.r));
-      if (nc && nc.player === 0) {
-        nc.player = p;
-        nc.isCore = placed.length < GS.config.coresPerPlayer;
-        placed.push(nb);
-      }
-    }
+    const cell = GS.grid.get(key(anchors[p-1].q, anchors[p-1].r));
+    cell.player = p;
+    cell.isCore = false;
   }
 }
 
@@ -411,16 +413,17 @@ function initGame() {
     currentPlayer: 1,
     counterChain,
     playerStatus: {
-      1: { isAlive: true, remainingScans: 3, isBot: false },
-      2: { isAlive: true, remainingScans: 3, isBot: true },
-      3: { isAlive: true, remainingScans: 3, isBot: true },
-      4: { isAlive: true, remainingScans: 3, isBot: true }
+      1: { isAlive: true, remainingScans: 3, isBot: false, hasFirstMoved: false },
+      2: { isAlive: true, remainingScans: 3, isBot: true,  hasFirstMoved: false },
+      3: { isAlive: true, remainingScans: 3, isBot: true,  hasFirstMoved: false },
+      4: { isAlive: true, remainingScans: 3, isBot: true,  hasFirstMoved: false }
     },
     config: { coresPerPlayer: 3, maxScansCarry: 3 },
     gameOver: false
   };
 
-  placeCores();
+  scatterNeutralCores();
+  placeStartingPieces();
   isScanningActive = false;
   hoverCell = null;
   updateChainDisplay();
@@ -457,6 +460,8 @@ function resolveRaycast(placerPlayer, pq, pr) {
 
     while (GS.grid.has(key(q, r))) {
       const cell = GS.grid.get(key(q, r));
+      // Unclaimed core: transparent — ray passes through, not flippable
+      if (cell.player === 0 && cell.isCore) { q += dq; r += dr; continue; }
       if (cell.player === 0) { blocked = true; break; }
       if (cell.player === placerPlayer) {
         // Found own piece — flip line if we have candidates
@@ -504,8 +509,23 @@ function resolveRaycast(placerPlayer, pq, pr) {
 function getValidMoves(player) {
   if (!GS.playerStatus[player].isAlive) return [];
   const moves = [];
+
+  // First move: free placement on any empty non-core cell
+  if (!GS.playerStatus[player].hasFirstMoved) {
+    for (const [k, cell] of GS.grid) {
+      if (cell.player === 0 && !cell.isCore)
+        moves.push({ q: cell.q, r: cell.r, isFree: true });
+    }
+    return moves;
+  }
+
   for (const [k, cell] of GS.grid) {
     if (cell.player !== 0) continue;
+    // Unclaimed core: always claimable
+    if (cell.isCore) {
+      moves.push({ q: cell.q, r: cell.r, isClaim: true });
+      continue;
+    }
     const { toFlip } = resolveRaycast(player, cell.q, cell.r);
     if (toFlip.length > 0) moves.push({ q: cell.q, r: cell.r });
   }
@@ -532,16 +552,23 @@ function getDesperationMoves(player) {
 // ─── Place Piece ──────────────────────────────────────────────
 function placeAndFlip(player, q, r, isDesperation = false) {
   const cell = GS.grid.get(key(q, r));
+
+  // Claiming an unclaimed core — just assign ownership, no flip
+  if (cell.isCore && cell.player === 0) {
+    cell.player = player;
+    GS.playerStatus[player].hasFirstMoved = true;
+    return;
+  }
+
   cell.player = player;
   cell.isCore = false;
+  GS.playerStatus[player].hasFirstMoved = true;
 
   if (!isDesperation) {
     const { toFlip } = resolveRaycast(player, q, r);
     toFlip.forEach(({ q: fq, r: fr }) => {
       const fc = GS.grid.get(key(fq, fr));
       fc.player = player;
-      // Flipped piece loses core status
-      // (cores that were penetrated don't get flipped anyway, filtered above)
     });
   }
 }
@@ -555,8 +582,10 @@ function checkDefeat(player) {
     if (cell.player === player && cell.isCore) coreCells.push(cell);
   }
 
+  // No claimed cores yet (early game) — not defeated, just vulnerable
   if (coreCells.length === 0) {
-    eliminatePlayer(player);
+    const noMoves = getValidMoves(player).length === 0 && getDesperationMoves(player).length === 0;
+    if (noMoves) eliminatePlayer(player);
     return;
   }
 
@@ -690,9 +719,21 @@ function evaluateMoves(botPlayer) {
 
   for (const move of validMoves) {
     let score = 0;
-    score += simulateFlipCount(botPlayer, move) * d.flipWeight;
-    if (willPenetrateEnemyCore(botPlayer, move)) score += d.penetrateBonus;
-    if (isAdjacentToOwnCore(botPlayer, move)) score += d.coreBonus;
+    if (move.isFree) {
+      // First move: prefer cells near neutral cores
+      const nearCore = neighbors(move.q, move.r).some(nb => {
+        const c = GS.grid.get(key(nb.q, nb.r));
+        return c && c.isCore && c.player === 0;
+      });
+      score += nearCore ? 20 : 0;
+    } else if (move.isClaim) {
+      // Claiming a neutral core is always high priority
+      score += 40;
+    } else {
+      score += simulateFlipCount(botPlayer, move) * d.flipWeight;
+      if (willPenetrateEnemyCore(botPlayer, move)) score += d.penetrateBonus;
+      if (isAdjacentToOwnCore(botPlayer, move)) score += d.coreBonus;
+    }
     if (score > maxScore) { maxScore = score; bestMove = move; }
   }
 
@@ -856,6 +897,16 @@ function render() {
       ctx.fillStyle = '#fff';
       ctx.globalAlpha = 0.85;
       ctx.fillText('◆', x, y);
+      ctx.restore();
+    } else if (cell.player === 0 && cell.isCore) {
+      // Unclaimed neutral core — gray hollow diamond
+      ctx.save();
+      ctx.font = `bold ${HEX_SIZE * 0.6}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#aaaaaa';
+      ctx.globalAlpha = 0.9;
+      ctx.fillText('◇', x, y);
       ctx.restore();
     } else if (cell.player !== 0) {
       // Small dot to show occupation
