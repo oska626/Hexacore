@@ -341,49 +341,65 @@ const CORNER_ZONES = [
   [{q:-1,r:3},{q:-2,r:3},{q:1,r:-3}], // P4 zone (bottom-left)
 ];
 
+function hexDistance(q1, r1, q2, r2) {
+  return (Math.abs(q1-q2) + Math.abs(q1+r1-q2-r2) + Math.abs(r1-r2)) / 2;
+}
+
 function placeCores() {
-  // Place 3 cores per player in distinct corner regions
-  const zones = [
-    // P1 top-left area
-    [{q:-3,r:1},{q:-3,r:2},{q:-2,r:3}],
-    // P2 bottom-right area
-    [{q:3,r:-1},{q:3,r:-2},{q:2,r:-3}],
-    // P3 top-right area
-    [{q:2,r:-3},{q:3,r:-3},{q:1,r:-3}],  // adjust for valid cells
-    // P4 bottom-left area
-    [{q:-2,r:3},{q:-1,r:3},{q:-3,r:3}],
-  ];
+  // Collect outer ring cells (distance 4–6 from center) as spawn candidates
+  const outerCells = [];
+  for (const [k, cell] of GS.grid) {
+    const d = hexDistance(0, 0, cell.q, cell.r);
+    if (d >= 4) outerCells.push({ q: cell.q, r: cell.r });
+  }
 
-  // Safer: pick 3 valid cells near corners for each player (radius 6)
-  const corners = [
-    [{q:-5,r:1},{q:-5,r:2},{q:-4,r:3}],  // P1 top-left
-    [{q:5,r:-1},{q:5,r:-2},{q:4,r:-3}],  // P2 bottom-right
-    [{q:1,r:-5},{q:2,r:-5},{q:3,r:-5}],  // P3 top-right
-    [{q:-1,r:5},{q:-2,r:5},{q:-3,r:5}],  // P4 bottom-left
-  ];
+  // Shuffle outer ring
+  for (let i = outerCells.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [outerCells[i], outerCells[j]] = [outerCells[j], outerCells[i]];
+  }
 
+  // Pick 4 spawn anchors with minimum separation (distance ≥ 5 apart)
+  const anchors = [];
+  const MIN_DIST = 5;
+  for (const candidate of outerCells) {
+    if (anchors.every(a => hexDistance(a.q, a.r, candidate.q, candidate.r) >= MIN_DIST)) {
+      anchors.push(candidate);
+      if (anchors.length === 4) break;
+    }
+  }
+
+  // Fallback: relax distance if we can't find 4 well-separated anchors
+  if (anchors.length < 4) {
+    for (const candidate of outerCells) {
+      if (anchors.find(a => a.q === candidate.q && a.r === candidate.r)) continue;
+      anchors.push(candidate);
+      if (anchors.length === 4) break;
+    }
+  }
+
+  // For each player, place 3 pieces (cores first) clustered around their anchor
   for (let p = 1; p <= 4; p++) {
-    const cells = corners[p-1];
-    // Also place one normal piece to give starting territory
-    cells.forEach((pos, idx) => {
-      const k = key(pos.q, pos.r);
-      if (GS.grid.has(k)) {
-        const cell = GS.grid.get(k);
-        cell.player = p;
-        cell.isCore = (idx < GS.config.coresPerPlayer);
-      } else {
-        // fallback: find nearest valid empty cell
-        for (const [dq, dr] of HEX_DIRS) {
-          const fk = key(pos.q+dq, pos.r+dr);
-          if (GS.grid.has(fk) && GS.grid.get(fk).player === 0) {
-            const cell = GS.grid.get(fk);
-            cell.player = p;
-            cell.isCore = (idx < GS.config.coresPerPlayer);
-            break;
-          }
-        }
+    const anchor = anchors[p - 1];
+    const placed = [];
+
+    // Anchor itself = first core
+    const anchorCell = GS.grid.get(key(anchor.q, anchor.r));
+    anchorCell.player = p;
+    anchorCell.isCore = true;
+    placed.push(anchor);
+
+    // Fill remaining 2 pieces from neighbors of anchor, preferring empty cells
+    const nbQueue = [...neighbors(anchor.q, anchor.r)];
+    for (const nb of nbQueue) {
+      if (placed.length >= GS.config.coresPerPlayer) break;
+      const nc = GS.grid.get(key(nb.q, nb.r));
+      if (nc && nc.player === 0) {
+        nc.player = p;
+        nc.isCore = placed.length < GS.config.coresPerPlayer;
+        placed.push(nb);
       }
-    });
+    }
   }
 }
 
