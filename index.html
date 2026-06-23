@@ -109,6 +109,74 @@
   #overlay-box h2 { font-size: 1.6rem; margin-bottom: 10px; color: #f0c040; }
   #overlay-box p { color: #ccc; margin-bottom: 20px; font-size: 0.95rem; }
   #overlay-box button { background: #f0c040; color: #000; font-size: 1rem; padding: 10px 28px; border-radius: 8px; }
+
+  /* ── Menu Overlay ── */
+  #menu-overlay {
+    display: flex;
+    position: fixed;
+    inset: 0;
+    background: #0d0d1f;
+    z-index: 200;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+  }
+  #menu-overlay.hidden { display: none; }
+  #menu-box {
+    text-align: center;
+    max-width: 420px;
+    width: 90%;
+  }
+  #menu-box .logo {
+    font-size: 3rem;
+    margin-bottom: 4px;
+  }
+  #menu-box h1 {
+    font-size: 2rem;
+    color: #f0c040;
+    text-shadow: 0 0 20px #f0c04099;
+    margin-bottom: 4px;
+    letter-spacing: 3px;
+  }
+  #menu-box .subtitle {
+    color: #888;
+    font-size: 0.85rem;
+    margin-bottom: 32px;
+    letter-spacing: 1px;
+  }
+  #menu-box .section-label {
+    color: #666;
+    font-size: 0.75rem;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+  .diff-btn {
+    display: block;
+    width: 100%;
+    padding: 14px 20px;
+    margin-bottom: 12px;
+    border-radius: 10px;
+    border: 2px solid transparent;
+    cursor: pointer;
+    font-size: 1rem;
+    font-weight: 700;
+    text-align: left;
+    transition: all 0.2s;
+    position: relative;
+  }
+  .diff-btn:hover { transform: translateX(4px); }
+  .diff-btn .diff-name { display: block; font-size: 1.05rem; }
+  .diff-btn .diff-desc { display: block; font-size: 0.75rem; font-weight: 400; margin-top: 2px; opacity: 0.75; }
+  .diff-easy  { background: #0a2a0a; border-color: #44cc44; color: #44cc44; }
+  .diff-med   { background: #1a2a0a; border-color: #aacc22; color: #aacc22; }
+  .diff-hard  { background: #2a0a0a; border-color: #ff4444; color: #ff4444; }
+  .diff-btn .badge {
+    position: absolute;
+    right: 16px; top: 50%;
+    transform: translateY(-50%);
+    font-size: 1.4rem;
+  }
 </style>
 </head>
 <body>
@@ -141,6 +209,31 @@
 </div>
 <div id="status-msg">遊戲開始！紅色玩家先手。</div>
 
+<!-- Menu -->
+<div id="menu-overlay">
+  <div id="menu-box">
+    <div class="logo">⬡</div>
+    <h1>HexaCore</h1>
+    <div class="subtitle">Counter Chain — 六角棋盤四色混戰</div>
+    <div class="section-label">選擇難度</div>
+    <button class="diff-btn diff-easy" onclick="startGame('easy')">
+      <span class="diff-name">🟢 簡單</span>
+      <span class="diff-desc">機器人隨機落子，適合新手熟習規則</span>
+      <span class="badge">😌</span>
+    </button>
+    <button class="diff-btn diff-med" onclick="startGame('medium')">
+      <span class="diff-name">🟡 普通</span>
+      <span class="diff-desc">機器人有基本策略，偶爾出奇招</span>
+      <span class="badge">🤔</span>
+    </button>
+    <button class="diff-btn diff-hard" onclick="startGame('hard')">
+      <span class="diff-name">🔴 困難</span>
+      <span class="diff-desc">機器人全力計算，保護核心優先</span>
+      <span class="badge">😈</span>
+    </button>
+  </div>
+</div>
+
 <div id="overlay">
   <div id="overlay-box">
     <h2 id="overlay-title">🏆 勝利！</h2>
@@ -171,6 +264,13 @@ let isScanningActive = false;
 let hoverCell = null;
 let botTimeout = null;
 let animQueue = [];
+let currentDifficulty = 'medium'; // easy | medium | hard
+
+const DIFFICULTY = {
+  easy:   { noiseChance: 0.65, flipWeight: 1, penetrateBonus: 5,  coreBonus: 10 },
+  medium: { noiseChance: 0.20, flipWeight: 2, penetrateBonus: 15, coreBonus: 25 },
+  hard:   { noiseChance: 0.00, flipWeight: 3, penetrateBonus: 25, coreBonus: 50 },
+};
 
 // ─── Canvas Setup ─────────────────────────────────────────────
 const canvas = document.getElementById('gameCanvas');
@@ -565,18 +665,19 @@ function isAdjacentToOwnCore(botPlayer, move) {
 function evaluateMoves(botPlayer) {
   let validMoves = getValidMoves(botPlayer);
   if (validMoves.length === 0) validMoves = getDesperationMoves(botPlayer);
+  const d = DIFFICULTY[currentDifficulty];
   let bestMove = null;
   let maxScore = -Infinity;
 
   for (const move of validMoves) {
     let score = 0;
-    score += simulateFlipCount(botPlayer, move) * 2;
-    if (willPenetrateEnemyCore(botPlayer, move)) score += 15;
-    if (isAdjacentToOwnCore(botPlayer, move)) score += 25;
+    score += simulateFlipCount(botPlayer, move) * d.flipWeight;
+    if (willPenetrateEnemyCore(botPlayer, move)) score += d.penetrateBonus;
+    if (isAdjacentToOwnCore(botPlayer, move)) score += d.coreBonus;
     if (score > maxScore) { maxScore = score; bestMove = move; }
   }
 
-  if (Math.random() < 0.2 && validMoves.length > 0) {
+  if (Math.random() < d.noiseChance && validMoves.length > 0) {
     return validMoves[Math.floor(Math.random() * validMoves.length)];
   }
   return bestMove;
@@ -777,10 +878,16 @@ function showOverlay(winnerPlayer) {
   document.getElementById('overlay').classList.add('show');
 }
 
-function restartGame() {
-  document.getElementById('overlay').classList.remove('show');
+function startGame(difficulty) {
+  currentDifficulty = difficulty;
+  document.getElementById('menu-overlay').classList.add('hidden');
   if (botTimeout) clearTimeout(botTimeout);
   initGame();
+}
+
+function restartGame() {
+  document.getElementById('overlay').classList.remove('show');
+  document.getElementById('menu-overlay').classList.remove('hidden');
 }
 
 // ─── Canvas Sizing ────────────────────────────────────────────
