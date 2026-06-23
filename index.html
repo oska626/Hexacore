@@ -258,8 +258,8 @@ const PLAYER_COLORS = {
   4: '#f0c040'
 };
 const PLAYER_NAMES = { 1: '紅色', 2: '藍色', 3: '綠色', 4: '黃色' };
-const GRID_RADIUS = 4; // hexes from center
-const HEX_SIZE = 36;
+const GRID_RADIUS = 6; // hexes from center
+const HEX_SIZE = 26;
 
 // ─── State ────────────────────────────────────────────────────
 let GS; // GameState
@@ -354,12 +354,12 @@ function placeCores() {
     [{q:-2,r:3},{q:-1,r:3},{q:-3,r:3}],
   ];
 
-  // Safer: pick 3 valid cells near corners for each player
+  // Safer: pick 3 valid cells near corners for each player (radius 6)
   const corners = [
-    [{q:-4,r:1},{q:-3,r:1},{q:-3,r:2}],
-    [{q:4,r:-1},{q:3,r:-1},{q:3,r:-2}],
-    [{q:1,r:-4},{q:1,r:-3},{q:2,r:-3}],
-    [{q:-1,r:4},{q:-1,r:3},{q:-2,r:3}],
+    [{q:-5,r:1},{q:-5,r:2},{q:-4,r:3}],  // P1 top-left
+    [{q:5,r:-1},{q:5,r:-2},{q:4,r:-3}],  // P2 bottom-right
+    [{q:1,r:-5},{q:2,r:-5},{q:3,r:-5}],  // P3 top-right
+    [{q:-1,r:5},{q:-2,r:5},{q:-3,r:5}],  // P4 bottom-left
   ];
 
   for (let p = 1; p <= 4; p++) {
@@ -940,7 +940,7 @@ function restartGame() {
 
 // ─── Canvas Sizing ────────────────────────────────────────────
 function resizeCanvas() {
-  const size = Math.min(window.innerWidth - 20, 560);
+  const size = Math.min(window.innerWidth - 20, 660);
   canvas.width = size;
   canvas.height = size;
   render();
