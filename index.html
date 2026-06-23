@@ -207,6 +207,9 @@
   <button id="btn-scan">🔍 雷達掃描 (3)</button>
   <button id="btn-restart">↩ 重新開始</button>
 </div>
+<div id="desp-banner" style="display:none; background:#2a1a00; border:1px solid #f0c040; border-radius:8px; padding:6px 14px; font-size:0.82rem; color:#f0c040; margin-top:4px; text-align:center;">
+  ⚠️ 緊急模式：無標準走法！請落子到 <b>橙色鄰格</b> 以求生存（不翻棋）
+</div>
 <div id="status-msg">遊戲開始！紅色玩家先手。</div>
 
 <!-- Menu -->
@@ -697,6 +700,9 @@ function executeBotTurn(botPlayer) {
 }
 
 // ─── Scan ─────────────────────────────────────────────────────
+// scanArmed = 已開啟但未消耗次數；首次懸停到空格才扣次數
+let scanArmed = false;
+
 function toggleScan() {
   const player = GS.currentPlayer;
   if (GS.playerStatus[player].isBot) return;
@@ -705,17 +711,26 @@ function toggleScan() {
       setStatus('掃描次數已用完！');
       return;
     }
-    GS.playerStatus[player].remainingScans--;
     isScanningActive = true;
+    scanArmed = true; // 次數未扣，等第一次懸停才扣
     document.getElementById('btn-scan').classList.add('active');
-    setStatus('掃描模式啟動 — 懸停在空格上查看射線。');
+    setStatus('掃描模式啟動 — 懸停在空格上查看射線（懸停時才消耗次數）。');
   } else {
     isScanningActive = false;
+    scanArmed = false;
     document.getElementById('btn-scan').classList.remove('active');
     setStatus('掃描模式關閉。');
   }
   updateUI();
   render();
+}
+
+function consumeScanCharge() {
+  if (!scanArmed) return;
+  const player = GS.currentPlayer;
+  GS.playerStatus[player].remainingScans--;
+  scanArmed = false;
+  updateUI();
 }
 
 // ─── Rendering ────────────────────────────────────────────────
@@ -748,24 +763,45 @@ function render() {
     ? getDesperationMoves(player) : [];
 
   // Draw scan rays if hovering
-  let rayCasts = [];
   if (isScanningActive && hoverCell) {
-    const { rayCasts: rc } = resolveRaycast(player, hoverCell.q, hoverCell.r);
-    rayCasts = rc;
-    // Draw ray lines
+    const { rayCasts } = resolveRaycast(player, hoverCell.q, hoverCell.r);
     const { x: ox, y: oy } = hexToPixel(hoverCell.q, hoverCell.r);
+
+    // Build a map of dir→rayCast result for easy lookup
+    const dirMap = {};
     for (const ray of rayCasts) {
-      if (ray.cells.length === 0) continue;
+      dirMap[ray.dir.join(',')] = ray;
+    }
+
+    // Show all 6 directions
+    for (const [dq, dr] of HEX_DIRS) {
+      const ray = dirMap[`${dq},${dr}`];
+
+      // Find the farthest reachable cell in this direction
+      let eq = hoverCell.q + dq, er = hoverCell.r + dr;
+      let lastValid = null;
+      while (GS.grid.has(key(eq, er))) { lastValid = { q: eq, r: er }; eq += dq; er += dr; }
+
+      if (!lastValid) continue; // direction goes off-grid immediately
+
+      if (!ray || ray.cells.length === 0) {
+        // Dead-end direction (empty or no enemies) — dim gray line
+        const { x: lx, y: ly } = hexToPixel(lastValid.q, lastValid.r);
+        ctx.save();
+        ctx.beginPath(); ctx.moveTo(ox, oy); ctx.lineTo(lx, ly);
+        ctx.strokeStyle = '#44446688'; ctx.lineWidth = 1;
+        ctx.setLineDash([2, 6]); ctx.stroke();
+        ctx.restore();
+        continue;
+      }
+
       const last = ray.cells[ray.cells.length - 1];
       const { x: lx, y: ly } = hexToPixel(last.q, last.r);
       ctx.save();
-      ctx.beginPath();
-      ctx.moveTo(ox, oy);
-      ctx.lineTo(lx, ly);
+      ctx.beginPath(); ctx.moveTo(ox, oy); ctx.lineTo(lx, ly);
       ctx.strokeStyle = ray.blocked ? '#ff4444' : '#44ff88';
       ctx.lineWidth = 2;
-      ctx.setLineDash([4, 4]);
-      ctx.stroke();
+      ctx.setLineDash([4, 4]); ctx.stroke();
       if (ray.blocked) {
         ctx.font = '16px sans-serif';
         ctx.fillStyle = '#ff4444';
@@ -843,15 +879,27 @@ function updateUI() {
   const scans = GS.playerStatus[p].remainingScans;
   document.getElementById('btn-scan').textContent = `🔍 雷達掃描 (${scans})`;
 
+  const despBanner = document.getElementById('desp-banner');
   if (!GS.gameOver) {
     const isBot = GS.playerStatus[p].isBot;
     if (!isBot) {
       const vm = getValidMoves(p);
       const dm = vm.length === 0 ? getDesperationMoves(p) : [];
-      if (vm.length > 0) setStatus(`${PLAYER_NAMES[p]}玩家回合 — 請落子。`);
-      else if (dm.length > 0) setStatus(`${PLAYER_NAMES[p]}玩家無標準走法！請使用緊急模式（黃色格）。`);
-      else setStatus(`${PLAYER_NAMES[p]}玩家無任何走法，正在檢查淘汰...`);
+      if (vm.length > 0) {
+        setStatus(`${PLAYER_NAMES[p]}玩家回合 — 請落子。`);
+        despBanner.style.display = 'none';
+      } else if (dm.length > 0) {
+        setStatus('');
+        despBanner.style.display = 'block';
+      } else {
+        setStatus(`${PLAYER_NAMES[p]}玩家無任何走法，正在檢查淘汰...`);
+        despBanner.style.display = 'none';
+      }
+    } else {
+      despBanner.style.display = 'none';
     }
+  } else {
+    despBanner.style.display = 'none';
   }
 }
 
@@ -920,6 +968,8 @@ canvas.addEventListener('mousemove', e => {
   const k = key(q, r);
   if (GS.grid.has(k) && GS.grid.get(k).player === 0) {
     hoverCell = { q, r };
+    // Consume scan charge on first hover over an empty cell
+    if (isScanningActive && scanArmed) consumeScanCharge();
   } else {
     hoverCell = null;
   }
