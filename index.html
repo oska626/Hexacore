@@ -329,8 +329,19 @@ function generateCounterChain(alivePlayers) {
   return chain;
 }
 
-function counters(attackerPlayer, defenderPlayer) {
-  return GS.counterChain[attackerPlayer] === defenderPlayer;
+// Returns 'counters' | 'countered' | 'neutral'
+function relationship(attacker, defender) {
+  if (GS.counterChain[attacker] === defender) return 'counters';
+  if (GS.counterChain[defender] === attacker) return 'countered';
+  return 'neutral';
+}
+
+function revealRelationship(attacker, defender) {
+  const k = `${attacker}→${defender}`;
+  if (!GS.revealedRelationships.has(k)) {
+    GS.revealedRelationships.add(k);
+    updateChainDisplay();
+  }
 }
 
 // ─── Initial Core Placement ───────────────────────────────────
@@ -413,12 +424,13 @@ function initGame() {
     currentPlayer: 1,
     counterChain,
     playerStatus: {
-      1: { isAlive: true, remainingScans: 3, isBot: false, hasFirstMoved: false },
-      2: { isAlive: true, remainingScans: 3, isBot: true,  hasFirstMoved: false },
-      3: { isAlive: true, remainingScans: 3, isBot: true,  hasFirstMoved: false },
-      4: { isAlive: true, remainingScans: 3, isBot: true,  hasFirstMoved: false }
+      1: { isAlive: true, remainingScans: 3, isBot: false, hasFirstMoved: false, desperationUsed: 0 },
+      2: { isAlive: true, remainingScans: 3, isBot: true,  hasFirstMoved: false, desperationUsed: 0 },
+      3: { isAlive: true, remainingScans: 3, isBot: true,  hasFirstMoved: false, desperationUsed: 0 },
+      4: { isAlive: true, remainingScans: 3, isBot: true,  hasFirstMoved: false, desperationUsed: 0 }
     },
-    config: { coresPerPlayer: 3, maxScansCarry: 3 },
+    config: { coresPerPlayer: 3, maxScansCarry: 3, maxDesperation: 3 },
+    revealedRelationships: new Set(),
     gameOver: false
   };
 
@@ -458,40 +470,54 @@ function resolveRaycast(placerPlayer, pq, pr) {
     let blocked = false;
     let penetratedCore = false;
 
-    while (GS.grid.has(key(q, r))) {
+    let rayDone = false;
+    while (GS.grid.has(key(q, r)) && !rayDone) {
       const cell = GS.grid.get(key(q, r));
-      // Unclaimed core: transparent — ray passes through, not flippable
+
+      // Unclaimed core: transparent
       if (cell.player === 0 && cell.isCore) { q += dq; r += dr; continue; }
-      if (cell.player === 0) { blocked = true; break; }
+
+      // Empty cell: stop
+      if (cell.player === 0) {
+        rayCasts.push({ dir: [dq,dr], cells: [...line], blocked: true });
+        rayDone = true; break;
+      }
+
+      // Own piece: close sandwich
       if (cell.player === placerPlayer) {
-        // Found own piece — flip line if we have candidates
         if (line.length > 0) {
           rayCasts.push({ dir: [dq,dr], cells: [...line], blocked: false });
           line.forEach(c => {
             if (!toFlip.find(f => f.q===c.q && f.r===c.r)) toFlip.push(c);
           });
         }
-        break;
+        rayDone = true; break;
       }
-      // Enemy piece
+
+      // Enemy piece — check relationship (Option C)
+      const rel = relationship(placerPlayer, cell.player);
       if (cell.isCore) {
-        if (counters(placerPlayer, cell.player)) {
-          // PENETRATE — core is passed through, keep going but mark penetrated
+        if (rel === 'counters') {
+          // PENETRATE — reveal this relationship
           line.push({ q, r, isCore: true, corePlayer: cell.player, penetrated: true });
-          penetratedCore = true;
+          revealRelationship(placerPlayer, cell.player);
         } else {
-          // BLOCK
-          blocked = true;
+          // BLOCK (neutral or countered)
           rayCasts.push({ dir: [dq,dr], cells: [...line], blocked: true });
-          break;
+          rayDone = true; break;
         }
       } else {
+        if (rel === 'countered') {
+          // Cannot flip this colour's pieces — ray stops
+          rayCasts.push({ dir: [dq,dr], cells: [...line], blocked: true });
+          rayDone = true; break;
+        }
         line.push({ q, r, isCore: false });
       }
       q += dq; r += dr;
     }
-
-    if (blocked) {
+    // Ray exited grid with unresolved line
+    if (!rayDone && line.length > 0) {
       rayCasts.push({ dir: [dq,dr], cells: [...line], blocked: true });
     }
   }
@@ -532,14 +558,15 @@ function getValidMoves(player) {
   return moves;
 }
 
-// Emergency desperation moves (adjacent to own cores)
+// Emergency desperation moves (adjacent to own cores, limited uses)
 function getDesperationMoves(player) {
+  if (GS.playerStatus[player].desperationUsed >= GS.config.maxDesperation) return [];
   const moves = [];
   for (const [k, cell] of GS.grid) {
     if (cell.player !== player || !cell.isCore) continue;
     for (const nb of neighbors(cell.q, cell.r)) {
       const nc = GS.grid.get(key(nb.q, nb.r));
-      if (nc && nc.player === 0) {
+      if (nc && nc.player === 0 && !nc.isCore) {
         if (!moves.find(m => m.q===nb.q && m.r===nb.r)) {
           moves.push({ q: nb.q, r: nb.r, isDesperation: true });
         }
@@ -564,7 +591,9 @@ function placeAndFlip(player, q, r, isDesperation = false) {
   cell.isCore = false;
   GS.playerStatus[player].hasFirstMoved = true;
 
-  if (!isDesperation) {
+  if (isDesperation) {
+    GS.playerStatus[player].desperationUsed++;
+  } else {
     const { toFlip } = resolveRaycast(player, q, r);
     toFlip.forEach(({ q: fq, r: fr }) => {
       const fc = GS.grid.get(key(fq, fr));
@@ -696,7 +725,7 @@ function willPenetrateEnemyCore(botPlayer, move) {
     while (GS.grid.has(key(q, r))) {
       const cell = GS.grid.get(key(q, r));
       if (cell.player === 0) break;
-      if (cell.isCore && counters(botPlayer, cell.player)) return true;
+      if (cell.isCore && relationship(botPlayer, cell.player) === 'counters') return true;
       q += dq; r += dr;
     }
   }
@@ -939,7 +968,8 @@ function updateUI() {
       if (cell.player === p && cell.isCore) coreCount++;
     }
     const scans = GS.playerStatus[p].remainingScans;
-    info.textContent = `核心: ${coreCount} | 掃描: ${scans}`;
+    const despLeft = GS.config.maxDesperation - GS.playerStatus[p].desperationUsed;
+    info.textContent = `核心: ${coreCount} | 掃描: ${scans} | 緊急: ${despLeft}`;
   });
 
   const p = GS.currentPlayer;
@@ -956,7 +986,9 @@ function updateUI() {
         setStatus(`${PLAYER_NAMES[p]}玩家回合 — 請落子。`);
         despBanner.style.display = 'none';
       } else if (dm.length > 0) {
+        const despLeft = GS.config.maxDesperation - GS.playerStatus[p].desperationUsed;
         setStatus('');
+        despBanner.querySelector('b').textContent = `橙色鄰格（剩餘 ${despLeft} 次）`;
         despBanner.style.display = 'block';
       } else {
         setStatus(`${PLAYER_NAMES[p]}玩家無任何走法，正在檢查淘汰...`);
@@ -977,8 +1009,16 @@ function setStatus(msg) {
 function updateChainDisplay() {
   const c = GS.counterChain;
   const names = { 1:'紅', 2:'藍', 3:'綠', 4:'黃' };
-  const parts = [1,2,3,4].map(p => `${names[p]}→${names[c[p]]}`);
-  document.getElementById('chain-display').textContent = '克制鏈: ' + parts.join(' | ');
+  const revealed = [];
+  for (let p = 1; p <= 4; p++) {
+    if (GS.revealedRelationships.has(`${p}→${c[p]}`)) {
+      revealed.push(`${names[p]}→${names[c[p]]}`);
+    }
+  }
+  const el = document.getElementById('chain-display');
+  el.textContent = revealed.length > 0
+    ? '已發現克制: ' + revealed.join(' | ')
+    : '克制鏈: 未知 — 靠試探或雷達發現';
 }
 
 function showOverlay(winnerPlayer) {
