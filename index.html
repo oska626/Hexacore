@@ -833,6 +833,7 @@ function checkWin() {
     if (checkConnection(p)) {
       GS.gameOver = true;
       showOverlay(p, '🔗 連線勝利！');
+      scheduleRoomCleanup();
       return true;
     }
   }
@@ -840,9 +841,15 @@ function checkWin() {
   if (alive.length === 1) {
     GS.gameOver = true;
     showOverlay(alive[0], '💀 淘汰勝利！');
+    scheduleRoomCleanup();
     return true;
   }
   return false;
+}
+
+function scheduleRoomCleanup() {
+  if (!isHost || !roomRef) return;
+  setTimeout(() => { if (roomRef) roomRef.remove(); }, 30000);
 }
 
 // ─── Turn Management ──────────────────────────────────────────
@@ -1367,8 +1374,25 @@ function lobbyShowJoin() {
   row.style.display = row.style.display === 'none' ? 'flex' : 'none';
 }
 
+async function cleanupStaleRooms() {
+  const cutoff = Date.now() - 24 * 60 * 60 * 1000; // 24 hours ago
+  try {
+    const snap = await _db.ref('rooms').once('value');
+    if (!snap.exists()) return;
+    const removes = [];
+    snap.forEach(child => {
+      const data = child.val();
+      if (!data.createdAt || data.createdAt < cutoff) {
+        removes.push(_db.ref(`rooms/${child.key}`).remove());
+      }
+    });
+    await Promise.all(removes);
+  } catch (e) { /* silent — cleanup is best-effort */ }
+}
+
 function lobbyCreate() {
   const roomId = Math.random().toString(36).slice(2, 8).toUpperCase();
+  cleanupStaleRooms(); // fire-and-forget; don't block room creation
   connectToRoom(roomId, true);
 }
 
@@ -1411,6 +1435,7 @@ async function connectToRoom(roomId, asHost) {
       gameOver: false,
       lastMove: null,
       difficulty: null,
+      createdAt: Date.now(),
     });
     myPlayerNum = 1;
   } else {
