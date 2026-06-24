@@ -534,13 +534,7 @@ function resolveRaycast(placerPlayer, pq, pr) {
 // ─── Direct Attack ────────────────────────────────────────────
 // Returns list of adjacent enemy pieces directly capturable (countered colour, non-core)
 function getDirectAttacks(player, q, r) {
-  const nbs = neighbors(q, r);
-  const adjacentToOwn = nbs.some(nb => {
-    const c = GS.grid.get(key(nb.q, nb.r));
-    return c && c.player === player;
-  });
-  if (!adjacentToOwn) return [];
-  return nbs.filter(nb => {
+  return neighbors(q, r).filter(nb => {
     const c = GS.grid.get(key(nb.q, nb.r));
     return c && c.player !== 0 && c.player !== player
       && !c.isCore
@@ -564,7 +558,15 @@ function getValidMoves(player) {
 
   for (const [k, cell] of GS.grid) {
     if (cell.player !== 0) continue;
-    // Unclaimed core: always claimable
+
+    // Gomoku rule: must be adjacent to at least one existing piece
+    const adjToAny = neighbors(cell.q, cell.r).some(nb => {
+      const c = GS.grid.get(key(nb.q, nb.r));
+      return c && c.player !== 0;
+    });
+    if (!adjToAny) continue;
+
+    // Unclaimed core: claimable if adjacent to any piece
     if (cell.isCore) {
       moves.push({ q: cell.q, r: cell.r, isClaim: true });
       continue;
