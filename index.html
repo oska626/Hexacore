@@ -1223,7 +1223,7 @@ function resizeCanvas() {
   const size = Math.min(window.innerWidth - 20, 660);
   canvas.width = size;
   canvas.height = size;
-  render();
+  if (GS) render();
 }
 
 // ─── Event Listeners ──────────────────────────────────────────
