@@ -250,19 +250,19 @@
 <h1>⬡ HexaCore — Counter Chain</h1>
 <div id="ui-bar">
   <div class="player-card p1-card" id="card-1">
-    <div>🔴 玩家 1</div>
+    <div id="card-1-name">🔴 玩家 1</div>
     <div id="card-1-info">核心: 3 | 掃描: 3</div>
   </div>
   <div class="player-card p2-card" id="card-2">
-    <div>🔵 機器人 2</div>
+    <div id="card-2-name">🔵 機器人 2</div>
     <div id="card-2-info">核心: 3 | 掃描: 3</div>
   </div>
   <div class="player-card p3-card" id="card-3">
-    <div>🟢 機器人 3</div>
+    <div id="card-3-name">🟢 機器人 3</div>
     <div id="card-3-info">核心: 3 | 掃描: 3</div>
   </div>
   <div class="player-card p4-card" id="card-4">
-    <div>🟡 機器人 4</div>
+    <div id="card-4-name">🟡 機器人 4</div>
     <div id="card-4-info">核心: 3 | 掃描: 3</div>
   </div>
 </div>
@@ -1367,11 +1367,13 @@ function handleRoomUpdate(data, roomId) {
     _startGameInternal(data.difficulty, data.slots || {});
   }
 
-  // New move arrived from Firebase
+  // New move arrived — all clients apply via echo for guaranteed sync
   const lm = data.lastMove;
-  if (lm && !locallyApplied.has(lm._key) && GS && !GS.gameOver) {
-    locallyApplied.add(lm._key);
+  if (lm && lm._key !== lastMoveKey && GS && !GS.gameOver) {
+    lastMoveKey = lm._key;
     executeTurn(lm.playerNum, lm.q, lm.r, !!lm.isDesperation);
+    // Host drives next bot turn after any move
+    scheduleNextBotIfHost();
   }
 }
 
@@ -1395,8 +1397,7 @@ async function lobbyRequestStart() {
 async function sendMove(playerNum, q, r, isDesperation) {
   if (!roomRef) return;
   const moveKey = Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
-  lastMoveKey = moveKey;
-  locallyApplied.add(moveKey);
+  // lastMoveKey will be set when we receive our own echo — don't set here
   await roomRef.update({
     lastMove: { playerNum, q, r, isDesperation: !!isDesperation, _key: moveKey }
   });
@@ -1407,8 +1408,18 @@ async function computeAndSendBotMove(playerNum) {
   const move = evaluateMoves(playerNum);
   if (!move) return;
   await sendMove(playerNum, move.q, move.r, !!move.isDesperation);
-  executeTurn(playerNum, move.q, move.r, !!move.isDesperation); // apply locally
-  scheduleNextBotIfHost(); // chain next bot if needed
+  // move applied via Firebase echo in handleRoomUpdate
+}
+
+const PLAYER_ICONS = { 1: '🔴', 2: '🔵', 3: '🟢', 4: '🟡' };
+
+function applySlotNames(slots) {
+  for (let p = 1; p <= 4; p++) {
+    const s = slots[p];
+    const label = s && !s.isBot ? `${PLAYER_ICONS[p]} ${s.name}` : `${PLAYER_ICONS[p]} 機器人 ${p}`;
+    const el = document.getElementById(`card-${p}-name`);
+    if (el) el.textContent = label;
+  }
 }
 
 function _startGameInternal(diff, slots) {
@@ -1420,8 +1431,8 @@ function _startGameInternal(diff, slots) {
     const s = slots[p];
     GS.playerStatus[p].isBot = !s || !!s.isBot;
   }
-  // Always ensure own slot is human
   if (myPlayerNum) GS.playerStatus[myPlayerNum].isBot = false;
+  applySlotNames(slots);
   updateUI(); render();
   if (isHost && GS.playerStatus[1].isBot) {
     setTimeout(() => computeAndSendBotMove(1), 800);
@@ -1434,20 +1445,10 @@ function handleHumanMoveMultiplayer(q, r) {
   if (player !== myPlayerNum) { setStatus('唔係你嘅回合！'); return; }
   const validMoves = getValidMoves(player);
   const isValid = validMoves.find(m => m.q === q && m.r === r);
-  if (isValid) {
-    sendMove(player, q, r, false);      // broadcast to Firebase
-    executeTurn(player, q, r, false);   // apply locally immediately
-    scheduleNextBotIfHost();
-    return;
-  }
+  if (isValid) { sendMove(player, q, r, false); return; }
   if (validMoves.length === 0) {
     const desp = getDesperationMoves(player);
-    if (desp.find(m => m.q === q && m.r === r)) {
-      sendMove(player, q, r, true);
-      executeTurn(player, q, r, true);
-      scheduleNextBotIfHost();
-      return;
-    }
+    if (desp.find(m => m.q === q && m.r === r)) { sendMove(player, q, r, true); return; }
   }
   setStatus('無效落子！');
 }
