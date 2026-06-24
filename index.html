@@ -215,6 +215,13 @@
     color: #f0c040; margin: 6px 0;
   }
   #lobby-players { font-size: 0.82rem; color: #aaa; margin-top: 8px; }
+  #lobby-name-row {
+    display: flex; gap: 8px; margin-bottom: 14px;
+  }
+  #lobby-name-row input {
+    flex: 1; padding: 10px; border-radius: 8px; border: 1px solid #ffffff33;
+    background: #0a0a1a; color: #eee; font-size: 0.95rem;
+  }
   #lobby-start-btn {
     display: none; margin-top: 14px; width: 100%; padding: 12px;
     border-radius: 10px; border: 2px solid #f0c040;
@@ -222,6 +229,23 @@
     font-weight: 700; cursor: pointer;
   }
   #lobby-start-btn:hover { background: #3a3a00; }
+  #lobby-exit-btn {
+    display: none; margin-top: 10px; width: 100%; padding: 10px;
+    border-radius: 10px; border: 2px solid #ff6644;
+    background: transparent; color: #ff6644; font-size: 0.9rem;
+    font-weight: 700; cursor: pointer;
+  }
+  #lobby-exit-btn:hover { background: #2a0a00; }
+  #lobby-waiting-msg {
+    margin-top: 14px; color: #888; font-size: 0.85rem;
+  }
+  .lobby-diff-btn {
+    flex: 1; padding: 8px 4px; border-radius: 8px; border: 1px solid #555;
+    background: transparent; color: #888; font-size: 0.8rem;
+    font-weight: 700; cursor: pointer; transition: all 0.2s;
+  }
+  .lobby-diff-btn.active { border-color: #f0c040; color: #f0c040; background: #2a2a00; }
+  .lobby-diff-btn:hover { border-color: #aaa; color: #eee; }
 </style>
 </head>
 <body>
@@ -231,18 +255,44 @@
   <div id="lobby-box">
     <h2>⬡ HexaCore</h2>
     <div class="sub">Counter Chain — 六角棋盤四色混戰</div>
-    <button class="lobby-btn solo"   onclick="lobbyStartSolo()">🤖 單人對戰（vs Bot）</button>
-    <button class="lobby-btn create" onclick="lobbyCreate()">🏠 建立房間</button>
-    <button class="lobby-btn join"   onclick="lobbyShowJoin()">🔑 加入房間</button>
-    <div id="lobby-join-row" style="display:flex;">
-      <input id="lobby-code-input" maxlength="6" placeholder="輸入房號" />
-      <button onclick="lobbyJoin()">加入</button>
+
+    <!-- Name input (always visible) -->
+    <div id="lobby-name-row">
+      <input id="lobby-name-input" maxlength="12" placeholder="輸入你的名字" />
     </div>
+
+    <!-- Main buttons (before joining) -->
+    <div id="lobby-main-btns">
+      <button class="lobby-btn solo"   onclick="lobbyStartSolo()">🤖 單人對戰（vs Bot）</button>
+      <button class="lobby-btn create" onclick="lobbyCreate()">🏠 建立房間</button>
+      <button class="lobby-btn join"   onclick="lobbyShowJoin()">🔑 加入房間</button>
+      <div id="lobby-join-row">
+        <input id="lobby-code-input" maxlength="6" placeholder="輸入房號" />
+        <button onclick="lobbyJoin()">加入</button>
+      </div>
+    </div>
+
+    <!-- Room info (after joining) -->
     <div id="lobby-room-info">
       <div style="color:#aaa;font-size:0.8rem;">房間號碼（分享給朋友）</div>
       <div id="lobby-room-code">——</div>
       <div id="lobby-players">等待玩家加入...</div>
-      <button id="lobby-start-btn" onclick="lobbyRequestStart()">▶ 開始遊戲</button>
+
+      <!-- Host only: difficulty + start -->
+      <div id="lobby-host-controls" style="display:none;">
+        <div style="color:#888;font-size:0.78rem;margin-top:12px;margin-bottom:6px;">選擇 Bot 難度</div>
+        <div style="display:flex;gap:8px;margin-bottom:10px;">
+          <button class="lobby-diff-btn active" id="diff-easy"   onclick="lobbySetDiff('easy')">🟢 簡單</button>
+          <button class="lobby-diff-btn"         id="diff-medium" onclick="lobbySetDiff('medium')">🟡 普通</button>
+          <button class="lobby-diff-btn"         id="diff-hard"   onclick="lobbySetDiff('hard')">🔴 困難</button>
+        </div>
+        <button id="lobby-start-btn" onclick="lobbyRequestStart()">▶ 開始遊戲</button>
+      </div>
+
+      <!-- Non-host: waiting message -->
+      <div id="lobby-waiting-msg">等待房主開始遊戲...</div>
+
+      <button id="lobby-exit-btn" onclick="lobbyExit()">✕ 退出房間</button>
     </div>
   </div>
 </div>
@@ -1294,6 +1344,12 @@ function lobbyStartSolo() {
 }
 
 // ── Multiplayer lobby ─────────────────────────────────────────
+let selectedDifficulty = 'easy';
+
+function lobbyGetName() {
+  return document.getElementById('lobby-name-input').value.trim() || '玩家';
+}
+
 function lobbyShowJoin() {
   const row = document.getElementById('lobby-join-row');
   row.style.display = row.style.display === 'none' ? 'flex' : 'none';
@@ -1310,14 +1366,34 @@ function lobbyJoin() {
   connectToRoom(code, false);
 }
 
+function lobbySetDiff(diff) {
+  selectedDifficulty = diff;
+  ['easy','medium','hard'].forEach(d => {
+    document.getElementById(`diff-${d}`).classList.toggle('active', d === diff);
+  });
+}
+
+function lobbyExit() {
+  if (roomRef) { roomRef.off(); roomRef = null; }
+  multiplayerMode = false; myPlayerNum = null; isHost = false;
+  locallyApplied.clear(); lastMoveKey = null;
+  document.getElementById('lobby-room-info').style.display = 'none';
+  document.getElementById('lobby-host-controls').style.display = 'none';
+  document.getElementById('lobby-waiting-msg').style.display = 'block';
+  document.getElementById('lobby-exit-btn').style.display = 'none';
+  document.getElementById('lobby-main-btns').style.display = 'block';
+  document.getElementById('lobby-overlay').style.display = 'flex';
+}
+
 async function connectToRoom(roomId, asHost) {
   isHost = asHost;
   multiplayerMode = true;
   roomRef = _db.ref(`rooms/${roomId}`);
+  const playerName = lobbyGetName();
 
   if (asHost) {
     await roomRef.set({
-      slots: { 1: { name: '房主', isBot: false } },
+      slots: { 1: { name: playerName, isBot: false } },
       gameStarted: false,
       gameOver: false,
       lastMove: null,
@@ -1334,13 +1410,21 @@ async function connectToRoom(roomId, asHost) {
     }
     if (!slot) { alert('房間已滿！'); multiplayerMode = false; return; }
     myPlayerNum = slot;
-    await _db.ref(`rooms/${roomId}/slots/${slot}`).set({ name: `玩家${slot}`, isBot: false });
+    await _db.ref(`rooms/${roomId}/slots/${slot}`).set({ name: playerName, isBot: false });
   }
 
   document.getElementById('lobby-room-code').textContent = roomId;
   document.getElementById('lobby-room-info').style.display = 'block';
+  document.getElementById('lobby-main-btns').style.display = 'none';
   document.getElementById('lobby-join-row').style.display = 'none';
-  if (asHost) document.getElementById('lobby-start-btn').style.display = 'block';
+  document.getElementById('lobby-exit-btn').style.display = 'block';
+  if (asHost) {
+    document.getElementById('lobby-host-controls').style.display = 'block';
+    document.getElementById('lobby-waiting-msg').style.display = 'none';
+  } else {
+    document.getElementById('lobby-host-controls').style.display = 'none';
+    document.getElementById('lobby-waiting-msg').style.display = 'block';
+  }
 
   roomRef.on('value', snap => {
     if (!snap.exists()) return;
@@ -1349,21 +1433,13 @@ async function connectToRoom(roomId, asHost) {
 }
 
 function handleRoomUpdate(data, roomId) {
-  updateLobbyPlayers(data.slots || {});
-
-  // Game started → close lobby, non-host waits for difficulty
-  if (data.gameStarted && document.getElementById('lobby-overlay').style.display !== 'none') {
-    document.getElementById('lobby-overlay').style.display = 'none';
-    if (isHost) {
-      // Show difficulty selection inside lobby-box (repurpose menu-overlay)
-      document.getElementById('menu-overlay').classList.add('visible');
-    } else {
-      setStatus('等待房主選擇難度...');
-    }
+  if (document.getElementById('lobby-overlay').style.display !== 'none') {
+    updateLobbyPlayers(data.slots || {});
   }
 
-  // Difficulty set → all clients start game
+  // Host wrote difficulty → all clients start game immediately
   if (data.difficulty && !GS) {
+    document.getElementById('lobby-overlay').style.display = 'none';
     _startGameInternal(data.difficulty, data.slots || {});
   }
 
@@ -1372,7 +1448,6 @@ function handleRoomUpdate(data, roomId) {
   if (lm && lm._key !== lastMoveKey && GS && !GS.gameOver) {
     lastMoveKey = lm._key;
     executeTurn(lm.playerNum, lm.q, lm.r, !!lm.isDesperation);
-    // Host drives next bot turn after any move
     scheduleNextBotIfHost();
   }
 }
@@ -1391,7 +1466,7 @@ function updateLobbyPlayers(slots) {
 
 async function lobbyRequestStart() {
   if (!roomRef || !isHost) return;
-  await roomRef.update({ gameStarted: true });
+  await roomRef.update({ gameStarted: true, difficulty: selectedDifficulty });
 }
 
 async function sendMove(playerNum, q, r, isDesperation) {
