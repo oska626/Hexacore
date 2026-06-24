@@ -112,16 +112,16 @@
 
   /* ── Menu Overlay ── */
   #menu-overlay {
-    display: flex;
+    display: none;
     position: fixed;
     inset: 0;
     background: #0d0d1f;
-    z-index: 200;
+    z-index: 150;
     align-items: center;
     justify-content: center;
     flex-direction: column;
   }
-  #menu-overlay.hidden { display: none; }
+  #menu-overlay.visible { display: flex; }
   #menu-box {
     text-align: center;
     max-width: 420px;
@@ -1208,14 +1208,14 @@ function showOverlay(winnerPlayer, winType = '勝利！') {
 
 function startGame(difficulty) {
   currentDifficulty = difficulty;
-  document.getElementById('menu-overlay').classList.add('hidden');
+  document.getElementById('menu-overlay').classList.remove('visible');
   if (botTimeout) clearTimeout(botTimeout);
   initGame();
 }
 
 function restartGame() {
   document.getElementById('overlay').classList.remove('show');
-  document.getElementById('menu-overlay').classList.remove('hidden');
+  document.getElementById('menu-overlay').classList.add('visible');
 }
 
 // ─── Canvas Sizing ────────────────────────────────────────────
@@ -1281,7 +1281,7 @@ let lastMoveKey  = null;   // ignore own move echo
 // ── Solo ─────────────────────────────────────────────────────
 function lobbyStartSolo() {
   document.getElementById('lobby-overlay').style.display = 'none';
-  document.getElementById('menu-overlay').style.display = 'flex';
+  document.getElementById('menu-overlay').classList.add('visible');
 }
 
 // ── Multiplayer lobby ─────────────────────────────────────────
@@ -1347,7 +1347,7 @@ function handleRoomUpdate(data, roomId) {
     document.getElementById('lobby-overlay').style.display = 'none';
     if (isHost) {
       // Show difficulty selection inside lobby-box (repurpose menu-overlay)
-      document.getElementById('menu-overlay').style.display = 'flex';
+      document.getElementById('menu-overlay').classList.add('visible');
     } else {
       setStatus('等待房主選擇難度...');
     }
@@ -1408,7 +1408,7 @@ async function computeAndSendBotMove(playerNum) {
 }
 
 function _startGameInternal(diff, slots) {
-  document.getElementById('menu-overlay').style.display = 'none';
+  document.getElementById('menu-overlay').classList.remove('visible');
   currentDifficulty = diff;
   initGame();
   // Apply bot flags after initGame resets playerStatus
