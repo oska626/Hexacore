@@ -568,15 +568,9 @@ function getValidMoves(player) {
     });
     if (!adjToOwn) continue;
 
-    // Unclaimed core: claimable if adjacent to any piece
-    if (cell.isCore) {
-      moves.push({ q: cell.q, r: cell.r, isClaim: true });
-      continue;
-    }
-    const { toFlip } = resolveRaycast(player, cell.q, cell.r);
+    // Any adjacent-to-own cell is valid; sandwich + direct attack fire as bonus effects
     const directHits = getDirectAttacks(player, cell.q, cell.r);
-    if (toFlip.length > 0 || directHits.length > 0)
-      moves.push({ q: cell.q, r: cell.r, hasDirectAttack: directHits.length > 0 });
+    moves.push({ q: cell.q, r: cell.r, hasDirectAttack: directHits.length > 0, isClaim: !!cell.isCore });
   }
   return moves;
 }
