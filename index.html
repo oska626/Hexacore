@@ -424,10 +424,10 @@ function initGame() {
     currentPlayer: 1,
     counterChain,
     playerStatus: {
-      1: { isAlive: true, remainingScans: 3, isBot: false, hasFirstMoved: false, desperationUsed: 0 },
-      2: { isAlive: true, remainingScans: 3, isBot: true,  hasFirstMoved: false, desperationUsed: 0 },
-      3: { isAlive: true, remainingScans: 3, isBot: true,  hasFirstMoved: false, desperationUsed: 0 },
-      4: { isAlive: true, remainingScans: 3, isBot: true,  hasFirstMoved: false, desperationUsed: 0 }
+      1: { isAlive: true, remainingScans: 3, isBot: false, hasFirstMoved: true, desperationUsed: 0 },
+      2: { isAlive: true, remainingScans: 3, isBot: true,  hasFirstMoved: true, desperationUsed: 0 },
+      3: { isAlive: true, remainingScans: 3, isBot: true,  hasFirstMoved: true, desperationUsed: 0 },
+      4: { isAlive: true, remainingScans: 3, isBot: true,  hasFirstMoved: true, desperationUsed: 0 }
     },
     config: { coresPerPlayer: 3, maxScansCarry: 3, maxDesperation: 3 },
     revealedRelationships: new Set(),
