@@ -534,7 +534,13 @@ function resolveRaycast(placerPlayer, pq, pr) {
 // ─── Direct Attack ────────────────────────────────────────────
 // Returns list of adjacent enemy pieces directly capturable (countered colour, non-core)
 function getDirectAttacks(player, q, r) {
-  return neighbors(q, r).filter(nb => {
+  const nbs = neighbors(q, r);
+  const adjacentToOwn = nbs.some(nb => {
+    const c = GS.grid.get(key(nb.q, nb.r));
+    return c && c.player === player;
+  });
+  if (!adjacentToOwn) return [];
+  return nbs.filter(nb => {
     const c = GS.grid.get(key(nb.q, nb.r));
     return c && c.player !== 0 && c.player !== player
       && !c.isCore
