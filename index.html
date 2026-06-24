@@ -326,13 +326,11 @@
   </div>
 </div>
 
-<!-- Firebase SDK -->
-<script type="module">
-import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
-import { getDatabase, ref, set, get, update, onValue, onChildChanged, off }
-  from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js';
-
-const firebaseConfig = {
+<!-- Firebase compat SDK (no module isolation issues) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script>
+firebase.initializeApp({
   apiKey:            "AIzaSyDlLeI7U52RUZYaT2rQL7PCW5d_ZK1vx2k",
   authDomain:        "hexacore-9119f.firebaseapp.com",
   databaseURL:       "https://hexacore-9119f-default-rtdb.asia-southeast1.firebasedatabase.app",
@@ -340,14 +338,8 @@ const firebaseConfig = {
   storageBucket:     "hexacore-9119f.firebasestorage.app",
   messagingSenderId: "288256251683",
   appId:             "1:288256251683:web:55bff788e1d1e30b2b5e96",
-  measurementId:     "G-0SRRY0PE12",
-};
-
-const fbApp = initializeApp(firebaseConfig);
-const db    = getDatabase(fbApp);
-window._fb  = { ref, set, get, update, onValue, onChildChanged, off, db };
-window._fbReady = true;
-document.dispatchEvent(new Event('fb-ready'));
+});
+const _db = firebase.database();
 </script>
 <script>
 // ─── Constants ────────────────────────────────────────────────
@@ -1286,11 +1278,13 @@ let multiplayerMode = false;
 let roomRef      = null;   // Firebase ref to current room
 let lastMoveKey  = null;   // ignore own move echo
 
+// ── Solo ─────────────────────────────────────────────────────
 function lobbyStartSolo() {
   document.getElementById('lobby-overlay').style.display = 'none';
   document.getElementById('menu-overlay').style.display = 'flex';
 }
 
+// ── Multiplayer lobby ─────────────────────────────────────────
 function lobbyShowJoin() {
   const row = document.getElementById('lobby-join-row');
   row.style.display = row.style.display === 'none' ? 'flex' : 'none';
@@ -1298,32 +1292,23 @@ function lobbyShowJoin() {
 
 function lobbyCreate() {
   const roomId = Math.random().toString(36).slice(2, 8).toUpperCase();
-  fbReady(() => connectToRoom(roomId, true));
+  connectToRoom(roomId, true);
 }
 
 function lobbyJoin() {
   const code = document.getElementById('lobby-code-input').value.trim().toUpperCase();
   if (code.length < 4) { alert('請輸入房間號碼'); return; }
-  fbReady(() => connectToRoom(code, false));
-}
-
-// Wait for Firebase module to load before using it
-function fbReady(fn) {
-  if (window._fbReady) { fn(); return; }
-  document.addEventListener('fb-ready', fn, { once: true });
+  connectToRoom(code, false);
 }
 
 async function connectToRoom(roomId, asHost) {
-  const { ref, set, get, update, onValue, db } = window._fb;
   isHost = asHost;
   multiplayerMode = true;
-  roomRef = ref(db, `rooms/${roomId}`);
+  roomRef = _db.ref(`rooms/${roomId}`);
 
   if (asHost) {
-    // Create fresh room
-    await set(roomRef, {
-      slots: { 1: { name: '房主', isBot: false }, 2: null, 3: null, 4: null },
-      currentPlayer: 1,
+    await roomRef.set({
+      slots: { 1: { name: '房主', isBot: false } },
       gameStarted: false,
       gameOver: false,
       lastMove: null,
@@ -1331,8 +1316,7 @@ async function connectToRoom(roomId, asHost) {
     });
     myPlayerNum = 1;
   } else {
-    // Join existing room — take first empty slot
-    const snap = await get(roomRef);
+    const snap = await roomRef.once('value');
     if (!snap.exists()) { alert('房間唔存在！'); multiplayerMode = false; return; }
     const data = snap.val();
     let slot = null;
@@ -1341,9 +1325,7 @@ async function connectToRoom(roomId, asHost) {
     }
     if (!slot) { alert('房間已滿！'); multiplayerMode = false; return; }
     myPlayerNum = slot;
-    await update(ref(db, `rooms/${roomId}/slots`), {
-      [slot]: { name: `玩家${slot}`, isBot: false }
-    });
+    await _db.ref(`rooms/${roomId}/slots/${slot}`).set({ name: `玩家${slot}`, isBot: false });
   }
 
   document.getElementById('lobby-room-code').textContent = roomId;
@@ -1351,38 +1333,29 @@ async function connectToRoom(roomId, asHost) {
   document.getElementById('lobby-join-row').style.display = 'none';
   if (asHost) document.getElementById('lobby-start-btn').style.display = 'block';
 
-  // Listen for room changes
-  onValue(roomRef, snap => {
+  roomRef.on('value', snap => {
     if (!snap.exists()) return;
     handleRoomUpdate(snap.val(), roomId);
   });
 }
 
 function handleRoomUpdate(data, roomId) {
-  const { ref, update, db } = window._fb;
-
-  // Update lobby player list
   updateLobbyPlayers(data.slots || {});
 
-  // Game started — close lobby
+  // Game started → close lobby, non-host waits for difficulty
   if (data.gameStarted && document.getElementById('lobby-overlay').style.display !== 'none') {
     document.getElementById('lobby-overlay').style.display = 'none';
-    // Apply slot config (who is bot)
-    const slots = data.slots || {};
-    for (let p = 1; p <= 4; p++) {
-      // Slot absent or marked bot → bot; human slot that isn't mine → also treated as bot locally
-      // (their moves arrive via lastMove listener)
-      if (!slots[p] || slots[p].isBot) {
-        if (GS) GS.playerStatus[p].isBot = true;
-      } else {
-        if (GS) GS.playerStatus[p].isBot = (p !== myPlayerNum);
-      }
+    if (isHost) {
+      // Show difficulty selection inside lobby-box (repurpose menu-overlay)
+      document.getElementById('menu-overlay').style.display = 'flex';
+    } else {
+      setStatus('等待房主選擇難度...');
     }
   }
 
-  // Difficulty chosen — start game
+  // Difficulty set → all clients start game
   if (data.difficulty && !GS) {
-    _startGameInternal(data.difficulty);
+    _startGameInternal(data.difficulty, data.slots || {});
   }
 
   // New move arrived
@@ -1392,11 +1365,11 @@ function handleRoomUpdate(data, roomId) {
     if (lm.playerNum !== myPlayerNum) {
       executeTurn(lm.playerNum, lm.q, lm.r, !!lm.isDesperation);
     }
-    // Bot turn: host computes
+    // Host drives bot turns
     if (isHost && GS && !GS.gameOver) {
       const cp = GS.currentPlayer;
       if (GS.playerStatus[cp].isBot) {
-        setTimeout(() => computeAndSendBotMove(cp, roomId), 800);
+        setTimeout(() => computeAndSendBotMove(cp), 800);
       }
     }
   }
@@ -1407,50 +1380,48 @@ function updateLobbyPlayers(slots) {
   const lines = [];
   for (let p = 1; p <= 4; p++) {
     const s = slots[p];
-    if (!s) lines.push(`${icons[p-1]} 玩家${p}: 等待中...`);
-    else if (s.isBot) lines.push(`${icons[p-1]} 玩家${p}: 🤖 Bot`);
-    else lines.push(`${icons[p-1]} 玩家${p}: ${s.name}`);
+    if (!s) lines.push(`${icons[p-1]} 玩家${p}：等待中...`);
+    else if (s.isBot) lines.push(`${icons[p-1]} 玩家${p}：🤖 Bot`);
+    else lines.push(`${icons[p-1]} 玩家${p}：${s.name}`);
   }
   document.getElementById('lobby-players').innerHTML = lines.join('<br>');
 }
 
 async function lobbyRequestStart() {
   if (!roomRef || !isHost) return;
-  const { ref, update, db } = window._fb;
-  // Fill remaining slots with bots
-  const slots = {};
-  for (let p = 2; p <= 4; p++) {
-    // We'll check via a fresh read — but simple: write bot for any slot we haven't seen joined
-    // Host will set in difficulty write
-  }
-  await update(roomRef, { gameStarted: true });
-  // Host picks difficulty — show menu
-  document.getElementById('menu-overlay').style.display = 'flex';
+  await roomRef.update({ gameStarted: true });
 }
 
 async function sendMove(playerNum, q, r, isDesperation) {
   if (!roomRef) return;
-  const { update } = window._fb;
   const moveKey = Date.now().toString(36);
   lastMoveKey = moveKey;
-  await update(roomRef, {
+  await roomRef.update({
     lastMove: { playerNum, q, r, isDesperation: !!isDesperation, _key: moveKey }
   });
 }
 
-async function computeAndSendBotMove(playerNum, roomId) {
+async function computeAndSendBotMove(playerNum) {
   if (!GS || GS.gameOver || GS.currentPlayer !== playerNum) return;
   const move = evaluateMoves(playerNum);
   if (move) await sendMove(playerNum, move.q, move.r, !!move.isDesperation);
 }
 
-// Internal game start (called once difficulty is known)
-function _startGameInternal(diff) {
-  currentDifficulty = diff;
+function _startGameInternal(diff, slots) {
   document.getElementById('menu-overlay').style.display = 'none';
+  currentDifficulty = diff;
   initGame();
-  // Re-apply bot flags after initGame resets playerStatus
-  // (handleRoomUpdate will fire again if needed — but call directly here too)
+  // Apply bot flags after initGame resets playerStatus
+  for (let p = 1; p <= 4; p++) {
+    const s = slots[p];
+    GS.playerStatus[p].isBot = !s || s.isBot || p !== myPlayerNum;
+  }
+  // Ensure own slot is human
+  GS.playerStatus[myPlayerNum].isBot = false;
+  updateUI(); render();
+  if (isHost && GS.playerStatus[1].isBot) {
+    setTimeout(() => computeAndSendBotMove(1), 800);
+  }
 }
 
 function handleHumanMoveMultiplayer(q, r) {
@@ -1467,16 +1438,21 @@ function handleHumanMoveMultiplayer(q, r) {
   setStatus('無效落子！');
 }
 
-// Override startGame to write difficulty to Firebase (host only)
+// Patch startGame: multiplayer host writes difficulty to Firebase
 const _startGameOriginal = startGame;
 window.startGame = async function(diff) {
   if (multiplayerMode && isHost && roomRef) {
-    const { update } = window._fb;
-    // Fill empty slots with bots before writing difficulty
     const botSlots = {};
-    for (let p = 2; p <= 4; p++) botSlots[`slots/${p}`] = { name: `Bot${p}`, isBot: true };
-    await update(roomRef, { ...botSlots, difficulty: diff });
-    _startGameInternal(diff);
+    for (let p = 2; p <= 4; p++) {
+      botSlots[p] = { name: `Bot${p}`, isBot: true };
+    }
+    // Merge human slots that already joined
+    const snap = await roomRef.child('slots').once('value');
+    const existing = snap.val() || {};
+    for (let p = 2; p <= 4; p++) {
+      if (existing[p] && !existing[p].isBot) botSlots[p] = existing[p];
+    }
+    await roomRef.update({ slots: { 1: { name: '房主', isBot: false }, ...botSlots }, difficulty: diff });
   } else {
     _startGameOriginal(diff);
   }
