@@ -1078,9 +1078,10 @@ function render() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   const player = GS.currentPlayer;
-  const validMoves = (!GS.playerStatus[player].isBot && !GS.gameOver)
+  const isMyTurn = !multiplayerMode || player === myPlayerNum;
+  const validMoves = (isMyTurn && !GS.playerStatus[player].isBot && !GS.gameOver)
     ? getValidMoves(player) : [];
-  const despMoves = validMoves.length === 0 && !GS.playerStatus[player].isBot && !GS.gameOver
+  const despMoves = validMoves.length === 0 && isMyTurn && !GS.playerStatus[player].isBot && !GS.gameOver
     ? getDesperationMoves(player) : [];
 
   // Draw scan rays if hovering
