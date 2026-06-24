@@ -531,6 +531,17 @@ function resolveRaycast(placerPlayer, pq, pr) {
   return { toFlip: actualFlips, rayCasts };
 }
 
+// ─── Direct Attack ────────────────────────────────────────────
+// Returns list of adjacent enemy pieces directly capturable (countered colour, non-core)
+function getDirectAttacks(player, q, r) {
+  return neighbors(q, r).filter(nb => {
+    const c = GS.grid.get(key(nb.q, nb.r));
+    return c && c.player !== 0 && c.player !== player
+      && !c.isCore
+      && relationship(player, c.player) === 'counters';
+  });
+}
+
 // ─── Valid Moves ───────────────────────────────────────────────
 function getValidMoves(player) {
   if (!GS.playerStatus[player].isAlive) return [];
@@ -553,7 +564,9 @@ function getValidMoves(player) {
       continue;
     }
     const { toFlip } = resolveRaycast(player, cell.q, cell.r);
-    if (toFlip.length > 0) moves.push({ q: cell.q, r: cell.r });
+    const directHits = getDirectAttacks(player, cell.q, cell.r);
+    if (toFlip.length > 0 || directHits.length > 0)
+      moves.push({ q: cell.q, r: cell.r, hasDirectAttack: directHits.length > 0 });
   }
   return moves;
 }
@@ -594,10 +607,14 @@ function placeAndFlip(player, q, r, isDesperation = false) {
   if (isDesperation) {
     GS.playerStatus[player].desperationUsed++;
   } else {
+    // Sandwich flips
     const { toFlip } = resolveRaycast(player, q, r);
     toFlip.forEach(({ q: fq, r: fr }) => {
-      const fc = GS.grid.get(key(fq, fr));
-      fc.player = player;
+      GS.grid.get(key(fq, fr)).player = player;
+    });
+    // Direct attack: flip adjacent countered-colour pieces (non-core)
+    getDirectAttacks(player, q, r).forEach(({ q: aq, r: ar }) => {
+      GS.grid.get(key(aq, ar)).player = player;
     });
   }
 }
@@ -760,6 +777,7 @@ function evaluateMoves(botPlayer) {
       score += 40;
     } else {
       score += simulateFlipCount(botPlayer, move) * d.flipWeight;
+      score += getDirectAttacks(botPlayer, move.q, move.r).length * d.flipWeight * 1.5;
       if (willPenetrateEnemyCore(botPlayer, move)) score += d.penetrateBonus;
       if (isAdjacentToOwnCore(botPlayer, move)) score += d.coreBonus;
     }
@@ -908,11 +926,19 @@ function render() {
     let stroke = '#444';
     let alpha = 1;
 
+    // Highlight adjacent cells that would be directly attacked on hover
+    const isDirectVictim = isScanningActive && hoverCell && !hoverCell.isOwn &&
+      cell.player !== 0 && cell.player !== player && !cell.isCore &&
+      relationship(player, cell.player) === 'counters' &&
+      neighbors(hoverCell.q, hoverCell.r).some(nb => nb.q === cell.q && nb.r === cell.r);
+
     if (cell.player === 0) {
       fill = '#1e1e30';
-      if (isValid) { fill = '#2a3a4a'; stroke = '#6090ff'; }
+      if (isValid && isValid.hasDirectAttack) { fill = '#2a1a1a'; stroke = '#ff6644'; }
+      else if (isValid) { fill = '#2a3a4a'; stroke = '#6090ff'; }
       if (isDesp) { fill = '#3a2a1a'; stroke = '#f0c040'; }
     }
+    if (isDirectVictim) { stroke = '#ff6644'; }
     if (isHover) { stroke = '#ffffff'; }
 
     drawHex(x, y, HEX_SIZE - 2, fill, stroke, alpha);
