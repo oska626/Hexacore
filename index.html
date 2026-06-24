@@ -561,12 +561,12 @@ function getValidMoves(player) {
   for (const [k, cell] of GS.grid) {
     if (cell.player !== 0) continue;
 
-    // Gomoku rule: must be adjacent to at least one existing piece
-    const adjToAny = neighbors(cell.q, cell.r).some(nb => {
+    // Gomoku rule: must be adjacent to at least one of own pieces
+    const adjToOwn = neighbors(cell.q, cell.r).some(nb => {
       const c = GS.grid.get(key(nb.q, nb.r));
-      return c && c.player !== 0;
+      return c && c.player === player;
     });
-    if (!adjToAny) continue;
+    if (!adjToOwn) continue;
 
     // Unclaimed core: claimable if adjacent to any piece
     if (cell.isCore) {
