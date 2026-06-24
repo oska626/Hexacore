@@ -1048,7 +1048,7 @@ function evaluateMoves(botPlayer) {
       score += 40;
     } else {
       score += simulateFlipCount(botPlayer, move) * d.flipWeight;
-      score += getDirectAttacks(botPlayer, move.q, move.r).length * d.flipWeight * 1.5;
+      score += Math.min(2, getDirectAttacks(botPlayer, move.q, move.r).length) * d.flipWeight * 1.5;
       if (willPenetrateEnemyCore(botPlayer, move)) score += d.penetrateBonus;
       if (isAdjacentToOwnCore(botPlayer, move)) score += d.coreBonus;
       score += blockScore(botPlayer, move) * d.blockBonus;
@@ -1579,6 +1579,8 @@ function handleRoomUpdate(data, roomId) {
   // Host wrote difficulty → all clients start game immediately
   if (data.difficulty && data.seed && !GS) {
     document.getElementById('lobby-overlay').style.display = 'none';
+    // Pre-seed lastMoveKey so the already-stored lastMove isn't replayed on a fresh board
+    if (data.lastMove) lastMoveKey = data.lastMove._key;
     _startGameInternal(data.difficulty, data.slots || {}, data.seed);
   }
 
