@@ -1216,7 +1216,14 @@ function startGame(difficulty) {
 
 function restartGame() {
   document.getElementById('overlay').classList.remove('show');
-  document.getElementById('menu-overlay').classList.add('visible');
+  locallyApplied.clear();
+  if (multiplayerMode) {
+    document.getElementById('lobby-overlay').style.display = 'flex';
+    if (roomRef) roomRef.update({ gameStarted: false, difficulty: null, lastMove: null });
+    multiplayerMode = false; roomRef = null; myPlayerNum = null; isHost = false;
+  } else {
+    document.getElementById('menu-overlay').classList.add('visible');
+  }
 }
 
 // ─── Canvas Sizing ────────────────────────────────────────────
@@ -1277,7 +1284,8 @@ let myPlayerNum  = null;   // 1-4, this client's slot
 let isHost       = false;
 let multiplayerMode = false;
 let roomRef      = null;   // Firebase ref to current room
-let lastMoveKey  = null;   // ignore own move echo
+let lastMoveKey  = null;
+const locallyApplied = new Set(); // keys of moves already applied locally, skip echo
 
 // ── Solo ─────────────────────────────────────────────────────
 function lobbyStartSolo() {
@@ -1361,15 +1369,9 @@ function handleRoomUpdate(data, roomId) {
 
   // New move arrived from Firebase
   const lm = data.lastMove;
-  if (lm && lm._key !== lastMoveKey && GS && !GS.gameOver) {
-    lastMoveKey = lm._key;
-    // Non-host: apply all moves (host already applied own moves locally)
-    // Host: apply only others' moves (own already applied locally)
-    const alreadyApplied = isHost && lm.playerNum === myPlayerNum;
-    if (!alreadyApplied) {
-      executeTurn(lm.playerNum, lm.q, lm.r, !!lm.isDesperation);
-      // Non-host: trigger bots via host (nothing to do here — host drives bots)
-    }
+  if (lm && !locallyApplied.has(lm._key) && GS && !GS.gameOver) {
+    locallyApplied.add(lm._key);
+    executeTurn(lm.playerNum, lm.q, lm.r, !!lm.isDesperation);
   }
 }
 
@@ -1392,8 +1394,9 @@ async function lobbyRequestStart() {
 
 async function sendMove(playerNum, q, r, isDesperation) {
   if (!roomRef) return;
-  const moveKey = Date.now().toString(36);
+  const moveKey = Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
   lastMoveKey = moveKey;
+  locallyApplied.add(moveKey);
   await roomRef.update({
     lastMove: { playerNum, q, r, isDesperation: !!isDesperation, _key: moveKey }
   });
@@ -1412,13 +1415,13 @@ function _startGameInternal(diff, slots) {
   document.getElementById('menu-overlay').classList.remove('visible');
   currentDifficulty = diff;
   initGame();
-  // Apply bot flags after initGame resets playerStatus
+  // Apply bot flags from Firebase slot data
   for (let p = 1; p <= 4; p++) {
     const s = slots[p];
-    GS.playerStatus[p].isBot = !s || s.isBot || p !== myPlayerNum;
+    GS.playerStatus[p].isBot = !s || !!s.isBot;
   }
-  // Ensure own slot is human
-  GS.playerStatus[myPlayerNum].isBot = false;
+  // Always ensure own slot is human
+  if (myPlayerNum) GS.playerStatus[myPlayerNum].isBot = false;
   updateUI(); render();
   if (isHost && GS.playerStatus[1].isBot) {
     setTimeout(() => computeAndSendBotMove(1), 800);
