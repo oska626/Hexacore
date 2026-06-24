@@ -394,13 +394,13 @@ function placeStartingPieces() {
   const outerCells = [];
   for (const [k, cell] of GS.grid) {
     const d = hexDistance(0, 0, cell.q, cell.r);
-    if (d >= 2 && d <= 4 && cell.player === 0 && !cell.isCore) outerCells.push({ q: cell.q, r: cell.r });
+    if (d >= 1 && d <= 3 && cell.player === 0 && !cell.isCore) outerCells.push({ q: cell.q, r: cell.r });
   }
   shuffle(outerCells);
 
   const anchors = [];
   for (const c of outerCells) {
-    if (anchors.every(a => hexDistance(a.q, a.r, c.q, c.r) >= 5)) {
+    if (anchors.every(a => hexDistance(a.q, a.r, c.q, c.r) >= 2)) {
       anchors.push(c);
       if (anchors.length === 4) break;
     }
