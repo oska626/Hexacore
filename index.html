@@ -394,7 +394,7 @@ function placeStartingPieces() {
   const outerCells = [];
   for (const [k, cell] of GS.grid) {
     const d = hexDistance(0, 0, cell.q, cell.r);
-    if (d >= 4 && cell.player === 0 && !cell.isCore) outerCells.push({ q: cell.q, r: cell.r });
+    if (d >= 2 && d <= 4 && cell.player === 0 && !cell.isCore) outerCells.push({ q: cell.q, r: cell.r });
   }
   shuffle(outerCells);
 
