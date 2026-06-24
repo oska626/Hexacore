@@ -854,6 +854,7 @@ function handleHumanMove(q, r) {
 
 // ─── Bot Logic ────────────────────────────────────────────────
 function scheduleBot() {
+  if (multiplayerMode) return; // bots driven by Firebase in multiplayer
   if (GS.gameOver) return;
   const cp = GS.currentPlayer;
   if (GS.playerStatus[cp].isBot && GS.playerStatus[cp].isAlive) {
@@ -1358,19 +1359,16 @@ function handleRoomUpdate(data, roomId) {
     _startGameInternal(data.difficulty, data.slots || {});
   }
 
-  // New move arrived
+  // New move arrived from Firebase
   const lm = data.lastMove;
   if (lm && lm._key !== lastMoveKey && GS && !GS.gameOver) {
     lastMoveKey = lm._key;
-    if (lm.playerNum !== myPlayerNum) {
+    // Non-host: apply all moves (host already applied own moves locally)
+    // Host: apply only others' moves (own already applied locally)
+    const alreadyApplied = isHost && lm.playerNum === myPlayerNum;
+    if (!alreadyApplied) {
       executeTurn(lm.playerNum, lm.q, lm.r, !!lm.isDesperation);
-    }
-    // Host drives bot turns
-    if (isHost && GS && !GS.gameOver) {
-      const cp = GS.currentPlayer;
-      if (GS.playerStatus[cp].isBot) {
-        setTimeout(() => computeAndSendBotMove(cp), 800);
-      }
+      // Non-host: trigger bots via host (nothing to do here — host drives bots)
     }
   }
 }
@@ -1404,7 +1402,10 @@ async function sendMove(playerNum, q, r, isDesperation) {
 async function computeAndSendBotMove(playerNum) {
   if (!GS || GS.gameOver || GS.currentPlayer !== playerNum) return;
   const move = evaluateMoves(playerNum);
-  if (move) await sendMove(playerNum, move.q, move.r, !!move.isDesperation);
+  if (!move) return;
+  await sendMove(playerNum, move.q, move.r, !!move.isDesperation);
+  executeTurn(playerNum, move.q, move.r, !!move.isDesperation); // apply locally
+  scheduleNextBotIfHost(); // chain next bot if needed
 }
 
 function _startGameInternal(diff, slots) {
@@ -1430,12 +1431,30 @@ function handleHumanMoveMultiplayer(q, r) {
   if (player !== myPlayerNum) { setStatus('唔係你嘅回合！'); return; }
   const validMoves = getValidMoves(player);
   const isValid = validMoves.find(m => m.q === q && m.r === r);
-  if (isValid) { sendMove(player, q, r, false); return; }
+  if (isValid) {
+    sendMove(player, q, r, false);      // broadcast to Firebase
+    executeTurn(player, q, r, false);   // apply locally immediately
+    scheduleNextBotIfHost();
+    return;
+  }
   if (validMoves.length === 0) {
     const desp = getDesperationMoves(player);
-    if (desp.find(m => m.q === q && m.r === r)) { sendMove(player, q, r, true); return; }
+    if (desp.find(m => m.q === q && m.r === r)) {
+      sendMove(player, q, r, true);
+      executeTurn(player, q, r, true);
+      scheduleNextBotIfHost();
+      return;
+    }
   }
   setStatus('無效落子！');
+}
+
+function scheduleNextBotIfHost() {
+  if (!isHost || !GS || GS.gameOver) return;
+  const cp = GS.currentPlayer;
+  if (GS.playerStatus[cp].isBot && GS.playerStatus[cp].isAlive) {
+    setTimeout(() => computeAndSendBotMove(cp), 800);
+  }
 }
 
 // Patch startGame: multiplayer host writes difficulty to Firebase
