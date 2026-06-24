@@ -177,9 +177,76 @@
     transform: translateY(-50%);
     font-size: 1.4rem;
   }
+
+  /* ── Lobby ── */
+  #lobby-overlay {
+    position: fixed; inset: 0; background: #1a1a2eee;
+    display: flex; align-items: center; justify-content: center; z-index: 200;
+  }
+  #lobby-box {
+    background: #16213e; border: 2px solid #f0c04066; border-radius: 16px;
+    padding: 32px 28px; width: 340px; max-width: 95vw; text-align: center;
+  }
+  #lobby-box h2 { color: #f0c040; font-size: 1.3rem; margin-bottom: 6px; }
+  #lobby-box .sub { color: #888; font-size: 0.8rem; margin-bottom: 20px; }
+  .lobby-btn {
+    display: block; width: 100%; padding: 12px; margin-bottom: 10px;
+    border-radius: 10px; border: 2px solid; cursor: pointer;
+    font-size: 0.95rem; font-weight: 700; transition: all 0.2s;
+    background: transparent;
+  }
+  .lobby-btn:hover { transform: translateY(-2px); }
+  .lobby-btn.solo  { border-color: #44cc44; color: #44cc44; }
+  .lobby-btn.create { border-color: #6090ff; color: #6090ff; }
+  .lobby-btn.join  { border-color: #f0c040; color: #f0c040; }
+  #lobby-join-row { display: none; gap: 8px; margin-bottom: 10px; }
+  #lobby-join-row input {
+    flex: 1; padding: 10px; border-radius: 8px; border: 1px solid #6090ff88;
+    background: #0a0a1a; color: #eee; font-size: 1rem; text-transform: uppercase;
+    letter-spacing: 3px; text-align: center;
+  }
+  #lobby-join-row button {
+    padding: 10px 16px; border-radius: 8px; border: none;
+    background: #6090ff; color: #fff; font-weight: 700; cursor: pointer;
+  }
+  #lobby-room-info { display: none; margin-top: 12px; }
+  #lobby-room-code {
+    font-size: 2rem; font-weight: 900; letter-spacing: 6px;
+    color: #f0c040; margin: 6px 0;
+  }
+  #lobby-players { font-size: 0.82rem; color: #aaa; margin-top: 8px; }
+  #lobby-start-btn {
+    display: none; margin-top: 14px; width: 100%; padding: 12px;
+    border-radius: 10px; border: 2px solid #f0c040;
+    background: #2a2a00; color: #f0c040; font-size: 1rem;
+    font-weight: 700; cursor: pointer;
+  }
+  #lobby-start-btn:hover { background: #3a3a00; }
 </style>
 </head>
 <body>
+
+<!-- Lobby -->
+<div id="lobby-overlay">
+  <div id="lobby-box">
+    <h2>⬡ HexaCore</h2>
+    <div class="sub">Counter Chain — 六角棋盤四色混戰</div>
+    <button class="lobby-btn solo"   onclick="lobbyStartSolo()">🤖 單人對戰（vs Bot）</button>
+    <button class="lobby-btn create" onclick="lobbyCreate()">🏠 建立房間</button>
+    <button class="lobby-btn join"   onclick="lobbyShowJoin()">🔑 加入房間</button>
+    <div id="lobby-join-row" style="display:flex;">
+      <input id="lobby-code-input" maxlength="6" placeholder="輸入房號" />
+      <button onclick="lobbyJoin()">加入</button>
+    </div>
+    <div id="lobby-room-info">
+      <div style="color:#aaa;font-size:0.8rem;">房間號碼（分享給朋友）</div>
+      <div id="lobby-room-code">——</div>
+      <div id="lobby-players">等待玩家加入...</div>
+      <button id="lobby-start-btn" onclick="lobbyRequestStart()">▶ 開始遊戲</button>
+    </div>
+  </div>
+</div>
+
 <h1>⬡ HexaCore — Counter Chain</h1>
 <div id="ui-bar">
   <div class="player-card p1-card" id="card-1">
@@ -200,6 +267,20 @@
   </div>
 </div>
 <div id="chain-display"></div>
+<div id="legend-bar" style="display:flex; gap:16px; justify-content:center; align-items:center; padding:4px 12px; font-size:0.75rem; color:#aaa; flex-wrap:wrap;">
+  <span style="display:flex;align-items:center;gap:5px;">
+    <span style="display:inline-block;width:16px;height:16px;border:2px solid #6090ff;border-radius:3px;background:#2a3a4a;"></span>
+    可翻棋落點
+  </span>
+  <span style="display:flex;align-items:center;gap:5px;">
+    <span style="display:inline-block;width:16px;height:16px;border:2px solid #ff6644;border-radius:3px;background:#2a1a1a;"></span>
+    直接攻擊落點
+  </span>
+  <span style="display:flex;align-items:center;gap:5px;">
+    <span style="display:inline-block;width:16px;height:16px;border:2px solid #f0c040;border-radius:3px;background:#3a2a1a;"></span>
+    保命落點
+  </span>
+</div>
 <div id="canvas-wrap">
   <canvas id="gameCanvas"></canvas>
 </div>
@@ -245,6 +326,29 @@
   </div>
 </div>
 
+<!-- Firebase SDK -->
+<script type="module">
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+import { getDatabase, ref, set, get, update, onValue, onChildChanged, off }
+  from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js';
+
+const firebaseConfig = {
+  apiKey:            "AIzaSyDlLeI7U52RUZYaT2rQL7PCW5d_ZK1vx2k",
+  authDomain:        "hexacore-9119f.firebaseapp.com",
+  databaseURL:       "https://hexacore-9119f-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId:         "hexacore-9119f",
+  storageBucket:     "hexacore-9119f.firebasestorage.app",
+  messagingSenderId: "288256251683",
+  appId:             "1:288256251683:web:55bff788e1d1e30b2b5e96",
+  measurementId:     "G-0SRRY0PE12",
+};
+
+const fbApp = initializeApp(firebaseConfig);
+const db    = getDatabase(fbApp);
+window._fb  = { ref, set, get, update, onValue, onChildChanged, off, db };
+window._fbReady = true;
+document.dispatchEvent(new Event('fb-ready'));
+</script>
 <script>
 // ─── Constants ────────────────────────────────────────────────
 const HEX_DIRS = [
@@ -272,9 +376,9 @@ let animQueue = [];
 let currentDifficulty = 'medium'; // easy | medium | hard
 
 const DIFFICULTY = {
-  easy:   { noiseChance: 0.65, flipWeight: 1, penetrateBonus: 5,  coreBonus: 10 },
-  medium: { noiseChance: 0.20, flipWeight: 2, penetrateBonus: 15, coreBonus: 25 },
-  hard:   { noiseChance: 0.00, flipWeight: 3, penetrateBonus: 25, coreBonus: 50 },
+  easy:   { noiseChance: 0.65, flipWeight: 1, penetrateBonus: 5,  coreBonus: 10, blockBonus: 8  },
+  medium: { noiseChance: 0.20, flipWeight: 2, penetrateBonus: 15, coreBonus: 25, blockBonus: 30 },
+  hard:   { noiseChance: 0.00, flipWeight: 3, penetrateBonus: 25, coreBonus: 50, blockBonus: 60 },
 };
 
 // ─── Canvas Setup ─────────────────────────────────────────────
@@ -390,31 +494,17 @@ function scatterNeutralCores() {
 }
 
 function placeStartingPieces() {
-  // Each player gets 1 normal piece on outer ring, well separated
-  const outerCells = [];
+  // d=2 ring has exactly 12 cells — assign ABCDABCDABCD interleaved
+  // so all 4 players mix immediately, enabling Othello sandwiches from turn 1
+  const ring = [];
   for (const [k, cell] of GS.grid) {
-    const d = hexDistance(0, 0, cell.q, cell.r);
-    if (d >= 1 && d <= 3 && cell.player === 0 && !cell.isCore) outerCells.push({ q: cell.q, r: cell.r });
+    if (hexDistance(0, 0, cell.q, cell.r) === 2 && !cell.isCore && cell.player === 0)
+      ring.push({ q: cell.q, r: cell.r });
   }
-  shuffle(outerCells);
-
-  const anchors = [];
-  for (const c of outerCells) {
-    if (anchors.every(a => hexDistance(a.q, a.r, c.q, c.r) >= 2)) {
-      anchors.push(c);
-      if (anchors.length === 4) break;
-    }
-  }
-  // Fallback
-  for (const c of outerCells) {
-    if (anchors.length >= 4) break;
-    if (!anchors.find(a => a.q === c.q && a.r === c.r)) anchors.push(c);
-  }
-
-  for (let p = 1; p <= 4; p++) {
-    const cell = GS.grid.get(key(anchors[p-1].q, anchors[p-1].r));
-    cell.player = p;
-    cell.isCore = false;
+  shuffle(ring);
+  for (let i = 0; i < Math.min(12, ring.length); i++) {
+    const cell = GS.grid.get(key(ring[i].q, ring[i].r));
+    if (cell && cell.player === 0) cell.player = (i % 4) + 1;
   }
 }
 
@@ -426,13 +516,14 @@ function initGame() {
     currentPlayer: 1,
     counterChain,
     playerStatus: {
-      1: { isAlive: true, remainingScans: 3, isBot: false, hasFirstMoved: true, desperationUsed: 0 },
-      2: { isAlive: true, remainingScans: 3, isBot: true,  hasFirstMoved: true, desperationUsed: 0 },
-      3: { isAlive: true, remainingScans: 3, isBot: true,  hasFirstMoved: true, desperationUsed: 0 },
-      4: { isAlive: true, remainingScans: 3, isBot: true,  hasFirstMoved: true, desperationUsed: 0 }
+      1: { isAlive: true, remainingScans: 3, isBot: false, desperationUsed: 0 },
+      2: { isAlive: true, remainingScans: 3, isBot: true,  desperationUsed: 0 },
+      3: { isAlive: true, remainingScans: 3, isBot: true,  desperationUsed: 0 },
+      4: { isAlive: true, remainingScans: 3, isBot: true,  desperationUsed: 0 }
     },
     config: { coresPerPlayer: 3, maxScansCarry: 3, maxDesperation: 3 },
     revealedRelationships: new Set(),
+    turnCount: 0,
     gameOver: false
   };
 
@@ -502,7 +593,6 @@ function resolveRaycast(placerPlayer, pq, pr) {
         if (rel === 'counters') {
           // PENETRATE — reveal this relationship
           line.push({ q, r, isCore: true, corePlayer: cell.player, penetrated: true });
-          revealRelationship(placerPlayer, cell.player);
         } else {
           // BLOCK (neutral or countered)
           rayCasts.push({ dir: [dq,dr], cells: [...line], blocked: true });
@@ -549,28 +639,24 @@ function getValidMoves(player) {
   if (!GS.playerStatus[player].isAlive) return [];
   const moves = [];
 
-  // First move: free placement on any empty non-core cell
-  if (!GS.playerStatus[player].hasFirstMoved) {
-    for (const [k, cell] of GS.grid) {
-      if (cell.player === 0 && !cell.isCore)
-        moves.push({ q: cell.q, r: cell.r, isFree: true });
-    }
-    return moves;
-  }
-
   for (const [k, cell] of GS.grid) {
     if (cell.player !== 0) continue;
 
-    // Gomoku rule: must be adjacent to at least one of own pieces
-    const adjToOwn = neighbors(cell.q, cell.r).some(nb => {
-      const c = GS.grid.get(key(nb.q, nb.r));
-      return c && c.player === player;
-    });
-    if (!adjToOwn) continue;
+    // Unclaimed core: claimable only if adjacent to any existing piece
+    if (cell.isCore && cell.player === 0) {
+      const adjAny = neighbors(cell.q, cell.r).some(nb => {
+        const c = GS.grid.get(key(nb.q, nb.r));
+        return c && c.player !== 0;
+      });
+      if (adjAny) moves.push({ q: cell.q, r: cell.r, isClaim: true });
+      continue;
+    }
 
-    // Any adjacent-to-own cell is valid; sandwich + direct attack fire as bonus effects
+    const { toFlip } = resolveRaycast(player, cell.q, cell.r);
     const directHits = getDirectAttacks(player, cell.q, cell.r);
-    moves.push({ q: cell.q, r: cell.r, hasDirectAttack: directHits.length > 0, isClaim: !!cell.isCore });
+    if (toFlip.length === 0 && directHits.length === 0) continue;
+
+    moves.push({ q: cell.q, r: cell.r, hasDirectAttack: directHits.length > 0 });
   }
   return moves;
 }
@@ -600,13 +686,11 @@ function placeAndFlip(player, q, r, isDesperation = false) {
   // Claiming an unclaimed core — just assign ownership, no flip
   if (cell.isCore && cell.player === 0) {
     cell.player = player;
-    GS.playerStatus[player].hasFirstMoved = true;
     return;
   }
 
   cell.player = player;
   cell.isCore = false;
-  GS.playerStatus[player].hasFirstMoved = true;
 
   if (isDesperation) {
     GS.playerStatus[player].desperationUsed++;
@@ -660,6 +744,7 @@ function eliminatePlayer(player) {
   const alive = [1,2,3,4].filter(p => GS.playerStatus[p].isAlive);
   if (alive.length >= 2) {
     GS.counterChain = generateCounterChain(alive);
+    GS.revealedRelationships = new Set();
     updateChainDisplay();
     setStatus(`${PLAYER_NAMES[player]}玩家被淘汰！克制鏈重新洗牌！`);
   } else {
@@ -716,9 +801,30 @@ function nextPlayer() {
   GS.currentPlayer = next;
 }
 
+function autoRevealChain() {
+  // Reveal one unrevealed relationship per milestone turn
+  const c = GS.counterChain;
+  const alive = [1,2,3,4].filter(p => GS.playerStatus[p].isAlive);
+  for (const p of alive) {
+    const k = `${p}→${c[p]}`;
+    if (!GS.revealedRelationships.has(k)) {
+      GS.revealedRelationships.add(k);
+      updateChainDisplay();
+      setStatus(`📢 第 ${GS.turnCount} 回合情報：${PLAYER_NAMES[p]} 克制 ${PLAYER_NAMES[c[p]]}！`);
+      return; // one reveal per milestone
+    }
+  }
+}
+
 function executeTurn(player, q, r, isDesperation = false) {
   if (GS.gameOver) return;
   placeAndFlip(player, q, r, isDesperation);
+  GS.turnCount++;
+  const aliveCount = [1,2,3,4].filter(p => GS.playerStatus[p].isAlive).length;
+  const interval = aliveCount * 2; // reveal every 2 full rounds
+  if (GS.turnCount % interval === 0) {
+    autoRevealChain();
+  }
   checkDefeat(player);
   // Check other players too (cascading defeats)
   [1,2,3,4].forEach(p => { if (p !== player) checkDefeat(p); });
@@ -788,6 +894,29 @@ function isAdjacentToOwnCore(botPlayer, move) {
   });
 }
 
+// Returns 0-1 score: how much placing at (move.q,move.r) blocks opponent longest lines
+function blockScore(botPlayer, move) {
+  let best = 0;
+  const axes = [[1,0],[0,1],[1,-1]];
+  const opponents = [1,2,3,4].filter(p => p !== botPlayer && GS.playerStatus[p].isAlive);
+  for (const opp of opponents) {
+    for (const [dq, dr] of axes) {
+      // Measure opp's current run through this cell on this axis
+      let run = 0;
+      for (const sign of [1, -1]) {
+        let q = move.q + dq * sign, r = move.r + dr * sign;
+        while (GS.grid.has(key(q, r)) && GS.grid.get(key(q, r)).player === opp) {
+          run++; q += dq * sign; r += dr * sign;
+        }
+      }
+      // Normalise: a run of WIN_LENGTH-1 adjacent pieces = score 1
+      const threat = run / (WIN_LENGTH - 1);
+      if (threat > best) best = threat;
+    }
+  }
+  return Math.min(best, 1);
+}
+
 function evaluateMoves(botPlayer) {
   let validMoves = getValidMoves(botPlayer);
   if (validMoves.length === 0) validMoves = getDesperationMoves(botPlayer);
@@ -797,14 +926,7 @@ function evaluateMoves(botPlayer) {
 
   for (const move of validMoves) {
     let score = 0;
-    if (move.isFree) {
-      // First move: prefer cells near neutral cores
-      const nearCore = neighbors(move.q, move.r).some(nb => {
-        const c = GS.grid.get(key(nb.q, nb.r));
-        return c && c.isCore && c.player === 0;
-      });
-      score += nearCore ? 20 : 0;
-    } else if (move.isClaim) {
+    if (move.isClaim) {
       // Claiming a neutral core is always high priority
       score += 40;
     } else {
@@ -812,6 +934,7 @@ function evaluateMoves(botPlayer) {
       score += getDirectAttacks(botPlayer, move.q, move.r).length * d.flipWeight * 1.5;
       if (willPenetrateEnemyCore(botPlayer, move)) score += d.penetrateBonus;
       if (isAdjacentToOwnCore(botPlayer, move)) score += d.coreBonus;
+      score += blockScore(botPlayer, move) * d.blockBonus;
     }
     if (score > maxScore) { maxScore = score; bestMove = move; }
   }
@@ -1113,14 +1236,16 @@ function resizeCanvas() {
 
 // ─── Event Listeners ──────────────────────────────────────────
 canvas.addEventListener('click', e => {
-  if (GS.gameOver) return;
+  if (!GS || GS.gameOver) return;
   const rect = canvas.getBoundingClientRect();
   const scaleX = canvas.width / rect.width;
   const scaleY = canvas.height / rect.height;
   const px = (e.clientX - rect.left) * scaleX;
   const py = (e.clientY - rect.top) * scaleY;
   const { q, r } = pixelToHex(px, py);
-  if (GS.grid.has(key(q, r))) handleHumanMove(q, r);
+  if (!GS.grid.has(key(q, r))) return;
+  if (multiplayerMode) handleHumanMoveMultiplayer(q, r);
+  else handleHumanMove(q, r);
 });
 
 canvas.addEventListener('mousemove', e => {
@@ -1152,7 +1277,210 @@ window.addEventListener('resize', resizeCanvas);
 
 // ─── Boot ─────────────────────────────────────────────────────
 resizeCanvas();
-initGame();
+// Game init deferred until lobby choice
+
+// ─── Lobby & Firebase Multiplayer ─────────────────────────────
+let myPlayerNum  = null;   // 1-4, this client's slot
+let isHost       = false;
+let multiplayerMode = false;
+let roomRef      = null;   // Firebase ref to current room
+let lastMoveKey  = null;   // ignore own move echo
+
+function lobbyStartSolo() {
+  document.getElementById('lobby-overlay').style.display = 'none';
+  document.getElementById('menu-overlay').style.display = 'flex';
+}
+
+function lobbyShowJoin() {
+  const row = document.getElementById('lobby-join-row');
+  row.style.display = row.style.display === 'none' ? 'flex' : 'none';
+}
+
+function lobbyCreate() {
+  const roomId = Math.random().toString(36).slice(2, 8).toUpperCase();
+  fbReady(() => connectToRoom(roomId, true));
+}
+
+function lobbyJoin() {
+  const code = document.getElementById('lobby-code-input').value.trim().toUpperCase();
+  if (code.length < 4) { alert('請輸入房間號碼'); return; }
+  fbReady(() => connectToRoom(code, false));
+}
+
+// Wait for Firebase module to load before using it
+function fbReady(fn) {
+  if (window._fbReady) { fn(); return; }
+  document.addEventListener('fb-ready', fn, { once: true });
+}
+
+async function connectToRoom(roomId, asHost) {
+  const { ref, set, get, update, onValue, db } = window._fb;
+  isHost = asHost;
+  multiplayerMode = true;
+  roomRef = ref(db, `rooms/${roomId}`);
+
+  if (asHost) {
+    // Create fresh room
+    await set(roomRef, {
+      slots: { 1: { name: '房主', isBot: false }, 2: null, 3: null, 4: null },
+      currentPlayer: 1,
+      gameStarted: false,
+      gameOver: false,
+      lastMove: null,
+      difficulty: null,
+    });
+    myPlayerNum = 1;
+  } else {
+    // Join existing room — take first empty slot
+    const snap = await get(roomRef);
+    if (!snap.exists()) { alert('房間唔存在！'); multiplayerMode = false; return; }
+    const data = snap.val();
+    let slot = null;
+    for (let p = 2; p <= 4; p++) {
+      if (!data.slots || !data.slots[p]) { slot = p; break; }
+    }
+    if (!slot) { alert('房間已滿！'); multiplayerMode = false; return; }
+    myPlayerNum = slot;
+    await update(ref(db, `rooms/${roomId}/slots`), {
+      [slot]: { name: `玩家${slot}`, isBot: false }
+    });
+  }
+
+  document.getElementById('lobby-room-code').textContent = roomId;
+  document.getElementById('lobby-room-info').style.display = 'block';
+  document.getElementById('lobby-join-row').style.display = 'none';
+  if (asHost) document.getElementById('lobby-start-btn').style.display = 'block';
+
+  // Listen for room changes
+  onValue(roomRef, snap => {
+    if (!snap.exists()) return;
+    handleRoomUpdate(snap.val(), roomId);
+  });
+}
+
+function handleRoomUpdate(data, roomId) {
+  const { ref, update, db } = window._fb;
+
+  // Update lobby player list
+  updateLobbyPlayers(data.slots || {});
+
+  // Game started — close lobby
+  if (data.gameStarted && document.getElementById('lobby-overlay').style.display !== 'none') {
+    document.getElementById('lobby-overlay').style.display = 'none';
+    // Apply slot config (who is bot)
+    const slots = data.slots || {};
+    for (let p = 1; p <= 4; p++) {
+      // Slot absent or marked bot → bot; human slot that isn't mine → also treated as bot locally
+      // (their moves arrive via lastMove listener)
+      if (!slots[p] || slots[p].isBot) {
+        if (GS) GS.playerStatus[p].isBot = true;
+      } else {
+        if (GS) GS.playerStatus[p].isBot = (p !== myPlayerNum);
+      }
+    }
+  }
+
+  // Difficulty chosen — start game
+  if (data.difficulty && !GS) {
+    _startGameInternal(data.difficulty);
+  }
+
+  // New move arrived
+  const lm = data.lastMove;
+  if (lm && lm._key !== lastMoveKey && GS && !GS.gameOver) {
+    lastMoveKey = lm._key;
+    if (lm.playerNum !== myPlayerNum) {
+      executeTurn(lm.playerNum, lm.q, lm.r, !!lm.isDesperation);
+    }
+    // Bot turn: host computes
+    if (isHost && GS && !GS.gameOver) {
+      const cp = GS.currentPlayer;
+      if (GS.playerStatus[cp].isBot) {
+        setTimeout(() => computeAndSendBotMove(cp, roomId), 800);
+      }
+    }
+  }
+}
+
+function updateLobbyPlayers(slots) {
+  const icons = ['🔴','🔵','🟢','🟡'];
+  const lines = [];
+  for (let p = 1; p <= 4; p++) {
+    const s = slots[p];
+    if (!s) lines.push(`${icons[p-1]} 玩家${p}: 等待中...`);
+    else if (s.isBot) lines.push(`${icons[p-1]} 玩家${p}: 🤖 Bot`);
+    else lines.push(`${icons[p-1]} 玩家${p}: ${s.name}`);
+  }
+  document.getElementById('lobby-players').innerHTML = lines.join('<br>');
+}
+
+async function lobbyRequestStart() {
+  if (!roomRef || !isHost) return;
+  const { ref, update, db } = window._fb;
+  // Fill remaining slots with bots
+  const slots = {};
+  for (let p = 2; p <= 4; p++) {
+    // We'll check via a fresh read — but simple: write bot for any slot we haven't seen joined
+    // Host will set in difficulty write
+  }
+  await update(roomRef, { gameStarted: true });
+  // Host picks difficulty — show menu
+  document.getElementById('menu-overlay').style.display = 'flex';
+}
+
+async function sendMove(playerNum, q, r, isDesperation) {
+  if (!roomRef) return;
+  const { update } = window._fb;
+  const moveKey = Date.now().toString(36);
+  lastMoveKey = moveKey;
+  await update(roomRef, {
+    lastMove: { playerNum, q, r, isDesperation: !!isDesperation, _key: moveKey }
+  });
+}
+
+async function computeAndSendBotMove(playerNum, roomId) {
+  if (!GS || GS.gameOver || GS.currentPlayer !== playerNum) return;
+  const move = evaluateMoves(playerNum);
+  if (move) await sendMove(playerNum, move.q, move.r, !!move.isDesperation);
+}
+
+// Internal game start (called once difficulty is known)
+function _startGameInternal(diff) {
+  currentDifficulty = diff;
+  document.getElementById('menu-overlay').style.display = 'none';
+  initGame();
+  // Re-apply bot flags after initGame resets playerStatus
+  // (handleRoomUpdate will fire again if needed — but call directly here too)
+}
+
+function handleHumanMoveMultiplayer(q, r) {
+  if (!GS || GS.gameOver) return;
+  const player = GS.currentPlayer;
+  if (player !== myPlayerNum) { setStatus('唔係你嘅回合！'); return; }
+  const validMoves = getValidMoves(player);
+  const isValid = validMoves.find(m => m.q === q && m.r === r);
+  if (isValid) { sendMove(player, q, r, false); return; }
+  if (validMoves.length === 0) {
+    const desp = getDesperationMoves(player);
+    if (desp.find(m => m.q === q && m.r === r)) { sendMove(player, q, r, true); return; }
+  }
+  setStatus('無效落子！');
+}
+
+// Override startGame to write difficulty to Firebase (host only)
+const _startGameOriginal = startGame;
+window.startGame = async function(diff) {
+  if (multiplayerMode && isHost && roomRef) {
+    const { update } = window._fb;
+    // Fill empty slots with bots before writing difficulty
+    const botSlots = {};
+    for (let p = 2; p <= 4; p++) botSlots[`slots/${p}`] = { name: `Bot${p}`, isBot: true };
+    await update(roomRef, { ...botSlots, difficulty: diff });
+    _startGameInternal(diff);
+  } else {
+    _startGameOriginal(diff);
+  }
+};
 </script>
 </body>
 </html>

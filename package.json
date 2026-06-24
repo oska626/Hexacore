@@ -1,0 +1,10 @@
+{
+  "name": "hexacore",
+  "version": "1.0.0",
+  "description": "HexaCore — Counter Chain hex board game",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/oska626/Hexacore.git"
+  },
+  "license": "ISC"
+}
