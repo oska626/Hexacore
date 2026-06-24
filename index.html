@@ -280,13 +280,12 @@
 
       <!-- Host only: difficulty + start -->
       <div id="lobby-host-controls" style="display:none;">
-        <div style="color:#888;font-size:0.78rem;margin-top:12px;margin-bottom:6px;">選擇 Bot 難度</div>
+        <div style="color:#888;font-size:0.78rem;margin-top:12px;margin-bottom:6px;">選擇難度並開始遊戲</div>
         <div style="display:flex;gap:8px;margin-bottom:10px;">
-          <button class="lobby-diff-btn active" id="diff-easy"   onclick="lobbySetDiff('easy')">🟢 簡單</button>
-          <button class="lobby-diff-btn"         id="diff-medium" onclick="lobbySetDiff('medium')">🟡 普通</button>
-          <button class="lobby-diff-btn"         id="diff-hard"   onclick="lobbySetDiff('hard')">🔴 困難</button>
+          <button class="lobby-diff-btn" id="diff-easy"   onclick="lobbySetDiffAndStart('easy')">🟢 簡單</button>
+          <button class="lobby-diff-btn" id="diff-medium" onclick="lobbySetDiffAndStart('medium')">🟡 普通</button>
+          <button class="lobby-diff-btn" id="diff-hard"   onclick="lobbySetDiffAndStart('hard')">🔴 困難</button>
         </div>
-        <button id="lobby-start-btn" onclick="lobbyRequestStart()">▶ 開始遊戲</button>
       </div>
 
       <!-- Non-host: waiting message -->
@@ -1366,11 +1365,12 @@ function lobbyJoin() {
   connectToRoom(code, false);
 }
 
-function lobbySetDiff(diff) {
+function lobbySetDiffAndStart(diff) {
   selectedDifficulty = diff;
   ['easy','medium','hard'].forEach(d => {
     document.getElementById(`diff-${d}`).classList.toggle('active', d === diff);
   });
+  lobbyRequestStart();
 }
 
 function lobbyExit() {
