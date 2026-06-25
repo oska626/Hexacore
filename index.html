@@ -80,6 +80,12 @@
   }
   #btn-scan.active { background: #60d0ff; color: #000; }
   #btn-restart { background: #4a3a0a; color: #f0c040; border: 1px solid #f0c04044; }
+  #btn-attack-ok {
+    background: #1a3a10; color: #88ff66; border: 2px solid #88ff6666;
+    padding: 9px 28px; font-size: 1rem; letter-spacing: 1px;
+    display: none;
+  }
+  #btn-attack-ok.visible { display: inline-block; }
   #status-msg {
     font-size: 0.85rem;
     color: #aaa;
@@ -452,6 +458,7 @@
 </div>
 <div id="bottom-bar">
   <button id="btn-scan">🔍 雷達掃描 (3)</button>
+  <button id="btn-attack-ok" onclick="confirmTargets()">✓ OK</button>
   <button id="btn-restart">↩ 重新開始</button>
 </div>
 <div id="desp-banner" style="display:none; background:#2a1a00; border:1px solid #f0c040; border-radius:8px; padding:6px 14px; font-size:0.82rem; color:#f0c040; margin-top:4px; text-align:center;">
@@ -728,6 +735,7 @@ function placeStartingPieces() {
 function initGame() {
   pendingMove = null; pendingTargets = []; availableTargets = [];
   winLine = null; flipAnim = null;
+  document.getElementById('btn-attack-ok').classList.remove('visible');
   const counterChain = generateCounterChain();
   GS = {
     grid: generateGrid(GRID_RADIUS),
@@ -1140,13 +1148,20 @@ function initiateMove(player, q, r, isDesperation) {
   pendingMove = { player, q, r, isDesperation };
   pendingTargets = [];
   availableTargets = available;
-  setStatus(`⚔ 選擇攻擊目標（0/2）— 點擊目標棋子，點擊其他格確認`);
+  document.getElementById('btn-attack-ok').classList.add('visible');
+  setStatus(`⚔ 直接攻擊！點選最多 2 個橙色敵棋，再按 OK`);
+  tickTargetAnim();
+}
+
+function tickTargetAnim() {
+  if (!pendingMove) return;
   render();
+  requestAnimationFrame(tickTargetAnim);
 }
 
 function handleTargetClick(q, r) {
   const isAvailable = availableTargets.find(t => t.q === q && t.r === r);
-  if (!isAvailable) { confirmTargets(); return; }
+  if (!isAvailable) return; // ignore clicks outside targets
 
   const selIdx = pendingTargets.findIndex(t => t.q === q && t.r === r);
   if (selIdx >= 0) {
@@ -1155,14 +1170,14 @@ function handleTargetClick(q, r) {
     pendingTargets.push({ q, r });
     if (pendingTargets.length === 2) { confirmTargets(); return; }
   }
-  setStatus(`⚔ 選擇攻擊目標（${pendingTargets.length}/2）— 點擊目標棋子，點擊其他格確認`);
-  render();
+  setStatus(`⚔ 已選 ${pendingTargets.length}/2 個目標 — 再選或按 OK 確認`);
 }
 
 function confirmTargets() {
   const { player, q, r, isDesperation } = pendingMove;
   const targets = [...pendingTargets];
   pendingMove = null; pendingTargets = []; availableTargets = [];
+  document.getElementById('btn-attack-ok').classList.remove('visible');
   commitMove(player, q, r, isDesperation, targets);
 }
 
@@ -1483,6 +1498,7 @@ function render() {
 
     // Draw selectable / selected target indicators
     const hexAngles = [0, 60, 120, 180, 240, 300].map(a => a * Math.PI / 180);
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 200);
     for (const t of availableTargets) {
       const { x: tx, y: ty } = hexToPixel(t.q, t.r);
       const selected = pendingTargets.some(s => s.q === t.q && s.r === t.r);
@@ -1494,14 +1510,25 @@ function render() {
         i === 0 ? ctx.moveTo(hx, hy) : ctx.lineTo(hx, hy);
       });
       ctx.closePath();
-      ctx.strokeStyle = selected ? '#ffcc00' : '#ff8844';
-      ctx.lineWidth = selected ? 3 : 2;
+      if (selected) {
+        ctx.strokeStyle = '#ffcc00';
+        ctx.lineWidth = 3;
+        ctx.shadowColor = '#ffcc00';
+        ctx.shadowBlur = 10;
+      } else {
+        const alpha = 0.55 + 0.45 * pulse;
+        ctx.strokeStyle = `rgba(255,136,68,${alpha})`;
+        ctx.lineWidth = 2.5;
+        ctx.shadowColor = '#ff8844';
+        ctx.shadowBlur = 8 + 8 * pulse;
+      }
       ctx.stroke();
+      ctx.shadowBlur = 0;
       ctx.font = `bold ${HEX_SIZE * 0.5}px sans-serif`;
-      ctx.fillStyle = selected ? '#ffcc00' : '#ff8844';
+      ctx.fillStyle = selected ? '#ffcc00' : `rgba(255,136,68,${0.7 + 0.3 * pulse})`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(selected ? '✕' : '⚔', tx, ty);
+      ctx.fillText(selected ? '✓' : '⚔', tx, ty);
       ctx.restore();
     }
   }
