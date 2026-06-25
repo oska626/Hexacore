@@ -576,6 +576,7 @@ let botTimeout = null;
 let animQueue = [];
 let currentDifficulty = 'medium'; // easy | medium | hard
 let flipAnim = null; // { cells: [{q,r}], startTime, duration }
+let winLine = null;  // [{q,r}] winning cells to highlight
 
 const DIFFICULTY = {
   easy:   { noiseChance: 0.65, flipWeight: 1, penetrateBonus: 5,  coreBonus: 10, blockBonus: 8  },
@@ -726,6 +727,7 @@ function placeStartingPieces() {
 // ─── Game Initialization ──────────────────────────────────────
 function initGame() {
   pendingMove = null; pendingTargets = []; availableTargets = [];
+  winLine = null; flipAnim = null;
   const counterChain = generateCounterChain();
   GS = {
     grid: generateGrid(GRID_RADIUS),
@@ -1006,12 +1008,30 @@ function longestLine(player) {
   return best;
 }
 
+function getWinLine(player) {
+  for (const [dq, dr] of LINE_AXES) {
+    for (const [, cell] of GS.grid) {
+      if (cell.player !== player) continue;
+      const prevCell = GS.grid.get(key(cell.q - dq, cell.r - dr));
+      if (prevCell && prevCell.player === player) continue;
+      const cells = [{ q: cell.q, r: cell.r }];
+      let q = cell.q + dq, r = cell.r + dr;
+      while (GS.grid.has(key(q, r)) && GS.grid.get(key(q, r)).player === player) {
+        cells.push({ q, r }); q += dq; r += dr;
+      }
+      if (cells.length >= WIN_LENGTH) return cells;
+    }
+  }
+  return null;
+}
+
 // ─── Win Check ────────────────────────────────────────────────
 function checkWin() {
   const alive = [1,2,3,4].filter(p => GS.playerStatus[p].isAlive);
   // Connection win: any alive player has 7 in a line
   for (const p of alive) {
     if (checkConnection(p)) {
+      winLine = getWinLine(p);
       GS.gameOver = true;
       showOverlay(p, '🔗 連線勝利！');
       scheduleRoomCleanup();
@@ -1020,6 +1040,7 @@ function checkWin() {
   }
   // Elimination win: last player standing
   if (alive.length === 1) {
+    winLine = null;
     GS.gameOver = true;
     showOverlay(alive[0], '💀 淘汰勝利！');
     scheduleRoomCleanup();
@@ -1527,6 +1548,29 @@ function render() {
       ctx.restore();
     }
   }
+
+  if (winLine && winLine.length > 0) {
+    const pulse = 0.55 + 0.45 * Math.sin(performance.now() / 280);
+    ctx.save();
+    winLine.forEach(({ q: wq, r: wr }) => {
+      const { x: wx, y: wy } = hexToPixel(wq, wr);
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const ang = Math.PI / 180 * (60 * i - 30);
+        const px = wx + HEX_SIZE * 0.92 * Math.cos(ang);
+        const py = wy + HEX_SIZE * 0.92 * Math.sin(ang);
+        i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.strokeStyle = `rgba(255,255,255,${pulse})`;
+      ctx.lineWidth = 3.5;
+      ctx.shadowColor = '#ffffff';
+      ctx.shadowBlur = 18;
+      ctx.stroke();
+    });
+    ctx.restore();
+    requestAnimationFrame(() => { if (winLine) render(); });
+  }
 }
 
 // ─── UI ───────────────────────────────────────────────────────
@@ -1600,12 +1644,7 @@ function updateChainDisplay() {
 function showOverlay(winnerPlayer, winType = '勝利！') {
   document.getElementById('overlay-title').textContent =
     `${PLAYER_NAMES[winnerPlayer]} 勝利！`;
-  let territory = 0;
-  for (const [k, cell] of GS.grid) {
-    if (cell.player === winnerPlayer) territory++;
-  }
-  document.getElementById('overlay-msg').textContent =
-    `${winType}  佔領 ${territory} 格領土`;
+  document.getElementById('overlay-msg').textContent = winType;
   document.getElementById('overlay').classList.add('show');
 }
 
