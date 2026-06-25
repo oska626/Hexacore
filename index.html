@@ -88,9 +88,11 @@
     min-height: 1.2em;
   }
   #chain-display {
-    font-size: 0.75rem;
+    font-size: 0.88rem;
     color: #888;
-    margin-top: 4px;
+    margin-top: 6px;
+    text-align: center;
+    min-height: 1.4em;
   }
   #overlay {
     display: none;
@@ -352,7 +354,7 @@
       max-width: 400px;
     }
     .player-card { min-width: 0; font-size: 0.68rem; padding: 4px 6px; }
-    #chain-display { font-size: 0.68rem; }
+    #chain-display { font-size: 0.78rem; }
     #legend-bar { font-size: 0.68rem; gap: 8px; padding: 2px 6px; }
     #status-msg { font-size: 0.78rem; max-width: 96vw; }
     #bottom-bar { gap: 6px; margin-top: 4px; }
@@ -573,6 +575,7 @@ let hoverCell = null;
 let botTimeout = null;
 let animQueue = [];
 let currentDifficulty = 'medium'; // easy | medium | hard
+let flipAnim = null; // { cells: [{q,r}], startTime, duration }
 
 const DIFFICULTY = {
   easy:   { noiseChance: 0.65, flipWeight: 1, penetrateBonus: 5,  coreBonus: 10, blockBonus: 8  },
@@ -896,10 +899,9 @@ function getDesperationMoves(player) {
 function placeAndFlip(player, q, r, isDesperation = false, targets = []) {
   const cell = GS.grid.get(key(q, r));
 
-  // Claiming an unclaimed core — just assign ownership, no flip
   if (cell.isCore && cell.player === 0) {
     cell.player = player;
-    return;
+    return [];
   }
 
   cell.player = player;
@@ -907,18 +909,20 @@ function placeAndFlip(player, q, r, isDesperation = false, targets = []) {
 
   if (isDesperation) {
     GS.playerStatus[player].desperationUsed++;
-  } else {
-    // Sandwich flips
-    const { toFlip } = resolveRaycast(player, q, r);
-    toFlip.forEach(({ q: fq, r: fr }) => {
-      GS.grid.get(key(fq, fr)).player = player;
-    });
-    // Direct attack: explicit player-chosen targets (max 2)
-    targets.forEach(({ q: aq, r: ar }) => {
-      const ac = GS.grid.get(key(aq, ar));
-      if (ac) ac.player = player;
-    });
+    return [];
   }
+
+  const flipped = [];
+  const { toFlip } = resolveRaycast(player, q, r);
+  toFlip.forEach(({ q: fq, r: fr }) => {
+    GS.grid.get(key(fq, fr)).player = player;
+    flipped.push({ q: fq, r: fr });
+  });
+  targets.forEach(({ q: aq, r: ar }) => {
+    const ac = GS.grid.get(key(aq, ar));
+    if (ac) { ac.player = player; flipped.push({ q: aq, r: ar }); }
+  });
+  return flipped;
 }
 
 // ─── Defeat Check ─────────────────────────────────────────────
@@ -985,6 +989,23 @@ function checkConnection(player) {
   return false;
 }
 
+function longestLine(player) {
+  let best = 0;
+  for (const [dq, dr] of LINE_AXES) {
+    for (const [, cell] of GS.grid) {
+      if (cell.player !== player) continue;
+      const prevCell = GS.grid.get(key(cell.q - dq, cell.r - dr));
+      if (prevCell && prevCell.player === player) continue;
+      let count = 1, q = cell.q + dq, r = cell.r + dr;
+      while (GS.grid.has(key(q, r)) && GS.grid.get(key(q, r)).player === player) {
+        count++; q += dq; r += dr;
+      }
+      if (count > best) best = count;
+    }
+  }
+  return best;
+}
+
 // ─── Win Check ────────────────────────────────────────────────
 function checkWin() {
   const alive = [1,2,3,4].filter(p => GS.playerStatus[p].isAlive);
@@ -1037,9 +1058,22 @@ function autoRevealChain() {
   }
 }
 
+function startFlipAnim(cells) {
+  flipAnim = { cells, startTime: performance.now(), duration: 480 };
+  requestAnimationFrame(tickFlipAnim);
+}
+
+function tickFlipAnim(now) {
+  if (!flipAnim) return;
+  const t = (now - flipAnim.startTime) / flipAnim.duration;
+  if (t >= 1) { flipAnim = null; render(); return; }
+  render();
+  requestAnimationFrame(tickFlipAnim);
+}
+
 function executeTurn(player, q, r, isDesperation = false, targets = []) {
   if (GS.gameOver) return;
-  placeAndFlip(player, q, r, isDesperation, targets);
+  const flipped = placeAndFlip(player, q, r, isDesperation, targets);
   GS.turnCount++;
   const aliveCount = [1,2,3,4].filter(p => GS.playerStatus[p].isAlive).length;
   const interval = aliveCount * 2; // reveal every 2 full rounds
@@ -1053,6 +1087,7 @@ function executeTurn(player, q, r, isDesperation = false, targets = []) {
   nextPlayer();
   updateUI();
   render();
+  if (flipped && flipped.length > 0) startFlipAnim(flipped);
   scheduleBot();
 }
 
@@ -1469,6 +1504,29 @@ function render() {
     ctx.stroke();
     ctx.restore();
   }
+
+  if (flipAnim) {
+    const t = Math.min(1, (performance.now() - flipAnim.startTime) / flipAnim.duration);
+    const alpha = t < 0.5 ? (1 - t * 2) * 0.72 : 0;
+    if (alpha > 0) {
+      ctx.save();
+      flipAnim.cells.forEach(({ q: fq, r: fr }) => {
+        if (!GS.grid.has(key(fq, fr))) return;
+        const { x: fx, y: fy } = hexToPixel(fq, fr);
+        ctx.beginPath();
+        for (let i = 0; i < 6; i++) {
+          const ang = Math.PI / 180 * (60 * i - 30);
+          const px = fx + HEX_SIZE * 0.88 * Math.cos(ang);
+          const py = fy + HEX_SIZE * 0.88 * Math.sin(ang);
+          i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+        ctx.fill();
+      });
+      ctx.restore();
+    }
+  }
 }
 
 // ─── UI ───────────────────────────────────────────────────────
@@ -1486,7 +1544,8 @@ function updateUI() {
     }
     const scans = GS.playerStatus[p].remainingScans;
     const despLeft = GS.config.maxDesperation - GS.playerStatus[p].desperationUsed;
-    info.textContent = `核心: ${coreCount} | 掃描: ${scans} | 緊急: ${despLeft}`;
+    const ll = longestLine(p);
+    info.textContent = `核心: ${coreCount} | 最長: ${ll} | 掃描: ${scans} | 緊急: ${despLeft}`;
   });
 
   const p = GS.currentPlayer;
@@ -1525,17 +1584,17 @@ function setStatus(msg) {
 
 function updateChainDisplay() {
   const c = GS.counterChain;
-  const names = { 1:'紅', 2:'藍', 3:'綠', 4:'黃' };
+  const el = document.getElementById('chain-display');
+  const tag = p => `<span style="color:${PLAYER_COLORS[p]};font-weight:700">${PLAYER_NAMES[p]}</span>`;
   const revealed = [];
   for (let p = 1; p <= 4; p++) {
     if (GS.revealedRelationships.has(`${p}→${c[p]}`)) {
-      revealed.push(`${names[p]}→${names[c[p]]}`);
+      revealed.push(`${tag(p)} ▶ ${tag(c[p])}`);
     }
   }
-  const el = document.getElementById('chain-display');
-  el.textContent = revealed.length > 0
-    ? '已發現克制: ' + revealed.join(' | ')
-    : '克制鏈: 未知 — 靠試探或雷達發現';
+  el.innerHTML = revealed.length > 0
+    ? `<span style="color:#777">已發現克制：</span>${revealed.join(' ｜ ')}`
+    : `<span style="color:#555">克制鏈：未知 — 靠試探或雷達發現</span>`;
 }
 
 function showOverlay(winnerPlayer, winType = '勝利！') {
