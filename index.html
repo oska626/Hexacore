@@ -252,6 +252,44 @@
   .lobby-diff-btn.active { border-color: #f0c040; color: #f0c040; background: #2a2a00; }
   .lobby-diff-btn:hover { border-color: #aaa; color: #eee; }
 
+  /* ── Demo Intro Overlay ── */
+  #demo-intro-overlay {
+    position: fixed; inset: 0;
+    background: #1a1a2eee;
+    display: flex; align-items: center; justify-content: center;
+    z-index: 150;
+  }
+  #demo-intro-box {
+    background: #16213e;
+    border: 2px solid #f0c04066;
+    border-radius: 16px;
+    padding: 24px 20px;
+    width: 360px;
+    max-width: 95vw;
+    max-height: 88vh;
+    overflow-y: auto;
+    text-align: left;
+  }
+  #demo-intro-box h2 { color: #f0c040; font-size: 1.15rem; text-align: center; margin-bottom: 14px; }
+  .rule-item {
+    margin-bottom: 10px; padding: 8px 10px;
+    background: #0d1b33; border-radius: 8px;
+    border-left: 3px solid #4488ff55;
+  }
+  .rule-title { font-size: 0.82rem; font-weight: 700; color: #88aaff; margin-bottom: 3px; }
+  .rule-body  { font-size: 0.76rem; color: #bbc; line-height: 1.4; }
+  #demo-intro-box .intro-btn {
+    display: block; width: 100%; margin-top: 8px;
+    padding: 10px; border-radius: 8px; border: 1px solid;
+    font-family: inherit; font-size: 0.88rem; cursor: pointer;
+  }
+  #demo-intro-box .intro-btn.primary {
+    background: #162844; border-color: #4488ff; color: #88bbff;
+  }
+  #demo-intro-box .intro-btn.secondary {
+    background: transparent; border-color: #445; color: #888;
+  }
+
   /* ── Demo Panel ── */
   #demo-panel {
     display: none;
@@ -448,6 +486,39 @@
     <h2 id="overlay-title">🏆 勝利！</h2>
     <p id="overlay-msg"></p>
     <button onclick="restartGame()">再玩一局</button>
+  </div>
+</div>
+
+<!-- Demo Intro Overlay -->
+<div id="demo-intro-overlay" style="display:none;">
+  <div id="demo-intro-box">
+    <h2>📖 遊戲說明</h2>
+    <div class="rule-item">
+      <div class="rule-title">🏆 勝利條件</div>
+      <div class="rule-body">任意方向連成 <b>7 枚</b>棋子（連線勝利），或成為最後存活玩家（淘汰勝利）</div>
+    </div>
+    <div class="rule-item">
+      <div class="rule-title">⚫ 翻棋規則</div>
+      <div class="rule-body">落子後，將對方棋子夾在兩枚己方棋子之間即可翻色（如黑白棋）</div>
+    </div>
+    <div class="rule-item">
+      <div class="rule-title">⚔ 直接攻擊</div>
+      <div class="rule-body">落子後可額外攻擊相鄰被克制色棋子，最多選 2 枚直接轉色</div>
+    </div>
+    <div class="rule-item">
+      <div class="rule-title">🔗 克制鏈</div>
+      <div class="rule-body">4 色棋子形成循環克制關係（初始隱藏，隨遊戲進行逐步揭示）</div>
+    </div>
+    <div class="rule-item">
+      <div class="rule-title">⬡ 核心格</div>
+      <div class="rule-body">特殊格子，佔領後可用作緊急落子（殊死一擊）根據地，每局限用 3 次</div>
+    </div>
+    <div class="rule-item">
+      <div class="rule-title">💀 淘汰條件</div>
+      <div class="rule-body">所有核心格被包圍且無法落子時被淘汰，其棋子全部清空</div>
+    </div>
+    <button class="intro-btn primary" onclick="launchDemo()">▶ 開始示範</button>
+    <button class="intro-btn secondary" onclick="exitDemo()">✕ 返回主選單</button>
   </div>
 </div>
 
@@ -1376,6 +1447,26 @@ function render() {
       ctx.restore();
     }
   }
+
+  // ── Demo: yellow glow on last placed piece ────────────────────
+  if (demoMode && demoHighlight && GS.grid.has(key(demoHighlight.q, demoHighlight.r))) {
+    const { x: hx, y: hy } = hexToPixel(demoHighlight.q, demoHighlight.r);
+    ctx.save();
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const ang = Math.PI / 180 * (60 * i - 30);
+      const px = hx + HEX_SIZE * Math.cos(ang);
+      const py = hy + HEX_SIZE * Math.sin(ang);
+      i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.strokeStyle = '#f0c040';
+    ctx.lineWidth = 3;
+    ctx.shadowColor = '#f0c040';
+    ctx.shadowBlur = 12;
+    ctx.stroke();
+    ctx.restore();
+  }
 }
 
 // ─── UI ───────────────────────────────────────────────────────
@@ -1837,10 +1928,17 @@ window.startGame = async function(diff) {
 // ── Demo Mode ─────────────────────────────────────────────────
 let demoMode = false;
 let demoNextTimeout = null;
+let demoHighlight = null;
 
 function startDemo() {
   document.getElementById('lobby-overlay').style.display = 'none';
+  document.getElementById('demo-intro-overlay').style.display = 'flex';
+}
+
+function launchDemo() {
+  document.getElementById('demo-intro-overlay').style.display = 'none';
   demoMode = true;
+  demoHighlight = null;
   currentDifficulty = 'medium';
   if (botTimeout) { clearTimeout(botTimeout); botTimeout = null; }
   if (demoNextTimeout) { clearTimeout(demoNextTimeout); demoNextTimeout = null; }
@@ -1848,7 +1946,7 @@ function startDemo() {
   for (let p = 1; p <= 4; p++) GS.playerStatus[p].isBot = true;
   document.body.classList.add('demo-active');
   document.getElementById('demo-panel').style.display = 'block';
-  showDemoAnnotation('📖 <b>遊戲說明示範</b><br><span style="color:#aaa;font-size:0.85em">點「下一步」逐步觀看 Bot 對戰，每步棋都有規則說明。</span>');
+  showDemoAnnotation('📖 <b>示範開始</b><br><span style="color:#aaa;font-size:0.85em">點「下一步」逐步觀看 Bot 對戰，每步棋都有說明。</span>');
 }
 
 function exitDemo() {
@@ -1856,9 +1954,11 @@ function exitDemo() {
   if (demoNextTimeout) { clearTimeout(demoNextTimeout); demoNextTimeout = null; }
   if (botTimeout) { clearTimeout(botTimeout); botTimeout = null; }
   GS = null;
+  demoHighlight = null;
   document.body.classList.remove('demo-active');
   document.getElementById('overlay').classList.remove('show');
   document.getElementById('demo-panel').style.display = 'none';
+  document.getElementById('demo-intro-overlay').style.display = 'none';
   document.getElementById('lobby-overlay').style.display = 'flex';
 }
 
@@ -1941,6 +2041,7 @@ function executeDemoBotTurn(botPlayer) {
     }
   }
 
+  demoHighlight = { q: move.q, r: move.r };
   showDemoAnnotation(annotation);
   executeTurn(botPlayer, move.q, move.r, isDesperation, targets);
 
