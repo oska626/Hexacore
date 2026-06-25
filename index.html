@@ -324,13 +324,14 @@
     font-family: inherit;
     transition: background 0.15s;
   }
-  #demo-controls button:first-child {
+  #demo-next-btn {
     background: #162844;
     border-color: #4488ff;
     color: #88bbff;
   }
-  #demo-controls button:first-child:hover { background: #1e3a5a; }
+  #demo-next-btn:hover { background: #1e3a5a; }
   #demo-controls button:last-child:hover { background: #1a1a2a; }
+  #demo-controls button:disabled { opacity: 0.3; cursor: not-allowed; }
   body.demo-active { padding-bottom: max(110px, calc(110px + env(safe-area-inset-bottom))); }
 
   /* ── Mobile ── */
@@ -526,7 +527,8 @@
 <div id="demo-panel">
   <div id="demo-annotation">📖 正在示範遊戲...</div>
   <div id="demo-controls">
-    <button onclick="demoNext()">下一步 →</button>
+    <button id="demo-prev-btn" onclick="demoPrev()" disabled>← 上一步</button>
+    <button id="demo-next-btn" onclick="demoNext()">下一步 →</button>
     <button onclick="exitDemo()">✕ 退出演示</button>
   </div>
 </div>
@@ -1929,16 +1931,56 @@ window.startGame = async function(diff) {
 let demoMode = false;
 let demoNextTimeout = null;
 let demoHighlight = null;
+let demoHistory = [];
+let demoCurrentAnnotation = '';
 
 function startDemo() {
   document.getElementById('lobby-overlay').style.display = 'none';
   document.getElementById('demo-intro-overlay').style.display = 'flex';
 }
 
+function cloneGS(gs) {
+  return {
+    grid: new Map([...gs.grid].map(([k, v]) => [k, { ...v }])),
+    currentPlayer: gs.currentPlayer,
+    counterChain: { ...gs.counterChain },
+    playerStatus: {
+      1: { ...gs.playerStatus[1] },
+      2: { ...gs.playerStatus[2] },
+      3: { ...gs.playerStatus[3] },
+      4: { ...gs.playerStatus[4] },
+    },
+    config: { ...gs.config },
+    revealedRelationships: new Set(gs.revealedRelationships),
+    turnCount: gs.turnCount,
+    gameOver: gs.gameOver,
+  };
+}
+
+function updateDemoPrevBtn() {
+  const btn = document.getElementById('demo-prev-btn');
+  if (btn) btn.disabled = demoHistory.length === 0;
+}
+
+function demoPrev() {
+  if (!demoMode || demoHistory.length === 0) return;
+  const prev = demoHistory.pop();
+  GS = prev.gs;
+  demoHighlight = prev.highlight;
+  demoCurrentAnnotation = prev.annotation;
+  showDemoAnnotation(prev.annotation);
+  if (!GS.gameOver) document.getElementById('overlay').classList.remove('show');
+  updateDemoPrevBtn();
+  updateUI();
+  render();
+}
+
 function launchDemo() {
   document.getElementById('demo-intro-overlay').style.display = 'none';
   demoMode = true;
   demoHighlight = null;
+  demoHistory = [];
+  demoCurrentAnnotation = '';
   currentDifficulty = 'medium';
   if (botTimeout) { clearTimeout(botTimeout); botTimeout = null; }
   if (demoNextTimeout) { clearTimeout(demoNextTimeout); demoNextTimeout = null; }
@@ -1955,6 +1997,8 @@ function exitDemo() {
   if (botTimeout) { clearTimeout(botTimeout); botTimeout = null; }
   GS = null;
   demoHighlight = null;
+  demoHistory = [];
+  demoCurrentAnnotation = '';
   document.body.classList.remove('demo-active');
   document.getElementById('overlay').classList.remove('show');
   document.getElementById('demo-panel').style.display = 'none';
@@ -1974,6 +2018,7 @@ function demoNext() {
 }
 
 function showDemoAnnotation(html) {
+  demoCurrentAnnotation = html;
   const el = document.getElementById('demo-annotation');
   if (el) el.innerHTML = html;
 }
@@ -2041,6 +2086,8 @@ function executeDemoBotTurn(botPlayer) {
     }
   }
 
+  demoHistory.push({ gs: cloneGS(GS), annotation: demoCurrentAnnotation, highlight: demoHighlight ? { ...demoHighlight } : null });
+  updateDemoPrevBtn();
   demoHighlight = { q: move.q, r: move.r };
   showDemoAnnotation(annotation);
   executeTurn(botPlayer, move.q, move.r, isDesperation, targets);
