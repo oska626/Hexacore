@@ -203,6 +203,7 @@
   .lobby-btn.solo  { border-color: #44cc44; color: #44cc44; }
   .lobby-btn.create { border-color: #6090ff; color: #6090ff; }
   .lobby-btn.join  { border-color: #f0c040; color: #f0c040; }
+  .lobby-btn.demo  { border-color: #8899bb; color: #8899bb; }
   #lobby-join-row { display: none; gap: 8px; margin-bottom: 10px; }
   #lobby-join-row input {
     flex: 1; padding: 10px; border-radius: 8px; border: 1px solid #6090ff88;
@@ -251,6 +252,49 @@
   .lobby-diff-btn.active { border-color: #f0c040; color: #f0c040; background: #2a2a00; }
   .lobby-diff-btn:hover { border-color: #aaa; color: #eee; }
 
+  /* ── Demo Panel ── */
+  #demo-panel {
+    display: none;
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    padding: 12px 16px;
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+    background: rgba(10,10,22,0.95);
+    border-top: 1px solid #334;
+    backdrop-filter: blur(10px);
+    z-index: 100;
+  }
+  #demo-annotation {
+    font-size: 0.88rem;
+    color: #ccd;
+    line-height: 1.5;
+    margin-bottom: 10px;
+    min-height: 2.2em;
+  }
+  #demo-controls {
+    display: flex;
+    gap: 10px;
+  }
+  #demo-controls button {
+    padding: 7px 16px;
+    border-radius: 8px;
+    border: 1px solid #445;
+    background: transparent;
+    color: #99aacc;
+    cursor: pointer;
+    font-size: 0.83rem;
+    font-family: inherit;
+    transition: background 0.15s;
+  }
+  #demo-controls button:first-child {
+    background: #162844;
+    border-color: #4488ff;
+    color: #88bbff;
+  }
+  #demo-controls button:first-child:hover { background: #1e3a5a; }
+  #demo-controls button:last-child:hover { background: #1a1a2a; }
+  body.demo-active { padding-bottom: max(110px, calc(110px + env(safe-area-inset-bottom))); }
+
   /* ── Mobile ── */
   @media (max-width: 500px) {
     body {
@@ -297,6 +341,7 @@
       <button class="lobby-btn solo"   onclick="lobbyStartSolo()">🤖 單人對戰（vs Bot）</button>
       <button class="lobby-btn create" onclick="lobbyCreate()">🏠 建立房間</button>
       <button class="lobby-btn join"   onclick="lobbyShowJoin()">🔑 加入房間</button>
+      <button class="lobby-btn demo"   onclick="startDemo()">📖 遊戲說明</button>
       <div id="lobby-join-row">
         <input id="lobby-code-input" maxlength="6" placeholder="輸入房號" />
         <button onclick="lobbyJoin()">加入</button>
@@ -403,6 +448,15 @@
     <h2 id="overlay-title">🏆 勝利！</h2>
     <p id="overlay-msg"></p>
     <button onclick="restartGame()">再玩一局</button>
+  </div>
+</div>
+
+<!-- Demo Panel -->
+<div id="demo-panel">
+  <div id="demo-annotation">📖 正在示範遊戲...</div>
+  <div id="demo-controls">
+    <button onclick="demoNext()">下一步 →</button>
+    <button onclick="exitDemo()">✕ 退出演示</button>
   </div>
 </div>
 
@@ -1009,6 +1063,7 @@ function pickBestTargets(available, maxCount) {
 
 // ─── Bot Logic ────────────────────────────────────────────────
 function scheduleBot() {
+  if (demoMode) { scheduleDemoBot(); return; }
   if (multiplayerMode) return; // bots driven by Firebase in multiplayer
   if (GS.gameOver) return;
   const cp = GS.currentPlayer;
@@ -1411,6 +1466,7 @@ function startGame(difficulty) {
 
 function restartGame() {
   document.getElementById('overlay').classList.remove('show');
+  if (demoMode) { exitDemo(); return; }
   locallyApplied.clear();
   if (multiplayerMode) {
     document.getElementById('lobby-overlay').style.display = 'flex';
@@ -1777,6 +1833,125 @@ window.startGame = async function(diff) {
     _startGameOriginal(diff);
   }
 };
+
+// ── Demo Mode ─────────────────────────────────────────────────
+let demoMode = false;
+let demoNextTimeout = null;
+
+function startDemo() {
+  document.getElementById('lobby-overlay').style.display = 'none';
+  demoMode = true;
+  currentDifficulty = 'medium';
+  if (botTimeout) { clearTimeout(botTimeout); botTimeout = null; }
+  if (demoNextTimeout) { clearTimeout(demoNextTimeout); demoNextTimeout = null; }
+  initGame();
+  for (let p = 1; p <= 4; p++) GS.playerStatus[p].isBot = true;
+  document.body.classList.add('demo-active');
+  document.getElementById('demo-panel').style.display = 'block';
+  showDemoAnnotation('📖 <b>遊戲說明示範</b><br><span style="color:#aaa;font-size:0.85em">觀看四名 Bot 自動對戰，每步棋都有規則說明。點「下一步」可跳過等待。</span>');
+}
+
+function exitDemo() {
+  demoMode = false;
+  if (demoNextTimeout) { clearTimeout(demoNextTimeout); demoNextTimeout = null; }
+  if (botTimeout) { clearTimeout(botTimeout); botTimeout = null; }
+  GS = null;
+  document.body.classList.remove('demo-active');
+  document.getElementById('overlay').classList.remove('show');
+  document.getElementById('demo-panel').style.display = 'none';
+  document.getElementById('lobby-overlay').style.display = 'flex';
+}
+
+function scheduleDemoBot() {
+  if (!demoMode || !GS || GS.gameOver) return;
+  const cp = GS.currentPlayer;
+  if (GS.playerStatus[cp].isAlive) {
+    demoNextTimeout = setTimeout(() => executeDemoBotTurn(cp), 2500);
+  }
+}
+
+function demoNext() {
+  if (!demoMode || !GS || GS.gameOver) return;
+  if (demoNextTimeout) { clearTimeout(demoNextTimeout); demoNextTimeout = null; }
+  const cp = GS.currentPlayer;
+  if (GS.playerStatus[cp].isAlive) executeDemoBotTurn(cp);
+}
+
+function showDemoAnnotation(html) {
+  const el = document.getElementById('demo-annotation');
+  if (el) el.innerHTML = html;
+}
+
+function executeDemoBotTurn(botPlayer) {
+  if (!demoMode || !GS || GS.gameOver) return;
+  if (!GS.playerStatus[botPlayer].isAlive) { scheduleDemoBot(); return; }
+
+  const move = evaluateMoves(botPlayer);
+  if (!move) {
+    checkDefeat(botPlayer);
+    if (!checkWin()) { nextPlayer(); updateUI(); render(); scheduleDemoBot(); }
+    return;
+  }
+
+  const col = PLAYER_COLORS[botPlayer];
+  const pName = PLAYER_NAMES[botPlayer];
+  const pTag = `<span style="color:${col};font-weight:700">${pName}</span>`;
+
+  const isCoreClaim = !!move.isClaim;
+  const isDesperation = !!move.isDesperation;
+  let targets = [];
+  let annotation = '';
+
+  if (isCoreClaim) {
+    annotation = `${pTag} 佔領中立核心格 ⬡<br><span style="color:#999;font-size:0.82em">核心格（⬡）是地圖上的特殊格子，鄰近任何棋子時可被佔領。佔領後作為緊急落子根據地，也提供防守價值。</span>`;
+  } else if (isDesperation) {
+    annotation = `${pTag} 使用緊急落子 ⚠<br><span style="color:#999;font-size:0.82em">無法正常落子時，可從自己核心格旁邊緊急佔格（不觸發翻棋）。每局最多使用 3 次。</span>`;
+  } else {
+    const { toFlip } = resolveRaycast(botPlayer, move.q, move.r);
+    const directAttacks = getDirectAttacks(botPlayer, move.q, move.r);
+    targets = pickBestTargets(directAttacks, 2);
+
+    const parts = [];
+    let hint = '';
+
+    if (toFlip.length > 0) {
+      const flippedPlayers = [...new Set(
+        toFlip.map(f => GS.grid.get(key(f.q, f.r))?.player).filter(p => p && p !== 0 && p !== botPlayer)
+      )];
+      const colorStr = flippedPlayers.map(p =>
+        `<span style="color:${PLAYER_COLORS[p]}">${PLAYER_NAMES[p]}</span>`
+      ).join('、');
+      parts.push(`夾擊翻轉 ${toFlip.length} 枚${colorStr ? colorStr : ''}棋子`);
+      hint += '夾住對方棋子（兩端都是己方棋子）即可翻色，如黑白棋。';
+    }
+
+    if (targets.length > 0) {
+      const victimPlayers = [...new Set(
+        targets.map(t => GS.grid.get(key(t.q, t.r))?.player).filter(p => p && p !== 0)
+      )];
+      const victimStr = victimPlayers.map(p =>
+        `<span style="color:${PLAYER_COLORS[p]}">${PLAYER_NAMES[p]}</span>`
+      ).join('、');
+      const counterPlayer = GS.counterChain[botPlayer];
+      const counterTag = `<span style="color:${PLAYER_COLORS[counterPlayer]}">${PLAYER_NAMES[counterPlayer]}</span>`;
+      parts.push(`直接攻擊 ${targets.length} 枚${victimStr ? victimStr : ''}棋子（${pTag}克制${counterTag}）`);
+      hint += (hint ? ' ' : '') + '相鄰被克制色的棋子可直接翻色，最多選 2 枚。克制關係每局隨機，會逐步揭示。';
+    }
+
+    if (parts.length === 0) {
+      annotation = `${pTag} 落子，搶佔有利位置。`;
+    } else {
+      annotation = `${pTag} 落子：${parts.join('，並')}。${hint ? `<br><span style="color:#999;font-size:0.82em">${hint}</span>` : ''}`;
+    }
+  }
+
+  showDemoAnnotation(annotation);
+  executeTurn(botPlayer, move.q, move.r, isDesperation, targets);
+
+  if (GS && GS.gameOver) {
+    showDemoAnnotation(annotation + '<br><br>🏆 <b>遊戲結束！</b>點「退出演示」返回主選單。');
+  }
+}
 </script>
 </body>
 </html>
