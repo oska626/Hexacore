@@ -138,6 +138,11 @@
     display: none;
   }
   #btn-attack-ok.visible { display: inline-block; }
+  #btn-sound {
+    background: #1a1a2a; color: #aaa; border: 1px solid #444;
+    padding: 8px 12px; font-size: 1rem; min-width: 42px;
+  }
+  #btn-sound:hover { color: #fff; border-color: #888; }
   #status-msg {
     font-size: 0.85rem;
     color: #aaa;
@@ -521,6 +526,7 @@
   <button id="btn-scan-info" onclick="toggleScanInfo()" title="掃描說明">ℹ</button>
   <button id="btn-attack-ok" onclick="confirmTargets()">✓ OK</button>
   <button id="btn-restart">↩ 重新開始</button>
+  <button id="btn-sound" onclick="toggleSound()" title="音效開關">🔊</button>
 </div>
 <div id="desp-banner" style="display:none; background:#2a1a00; border:1px solid #f0c040; border-radius:8px; padding:6px 14px; font-size:0.82rem; color:#f0c040; margin-top:4px; text-align:center;">
   ⚠️ 緊急模式：無標準走法！請落子到 <b>橙色鄰格</b> 以求生存（不翻棋）
@@ -1045,6 +1051,7 @@ function eliminatePlayer(player) {
 
 let _elimToastTimer = null;
 function showEliminationToast(player, reshuffled) {
+  sfxElim();
   const toast = document.getElementById('elim-toast');
   const color = PLAYER_COLORS[player];
   toast.style.borderColor = color + '88';
@@ -1169,6 +1176,7 @@ function autoRevealChain() {
 }
 
 function startFlipAnim(cells) {
+  sfxFlip(cells.length);
   flipAnim = { cells, startTime: performance.now(), duration: 480 };
   requestAnimationFrame(tickFlipAnim);
 }
@@ -1183,6 +1191,7 @@ function tickFlipAnim(now) {
 
 function executeTurn(player, q, r, isDesperation = false, targets = []) {
   if (GS.gameOver) return;
+  sfxPlace();
   const flipped = placeAndFlip(player, q, r, isDesperation, targets);
   GS.turnCount++;
   const aliveCount = [1,2,3,4].filter(p => GS.playerStatus[p].isAlive).length;
@@ -1286,6 +1295,62 @@ function pickBestTargets(available, maxCount) {
   }).sort((a, b) => b.threat - a.threat).slice(0, maxCount).map(t => ({ q: t.q, r: t.r }));
 }
 
+// ─── Audio ────────────────────────────────────────────────────
+let soundEnabled = true;
+let _audioCtx = null;
+
+function getAudioCtx() {
+  if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return _audioCtx;
+}
+
+function _tone(freq, startOffset, duration, type = 'sine', peak = 0.26) {
+  const ctx = getAudioCtx();
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.type = type;
+  osc.frequency.value = freq;
+  const t0 = ctx.currentTime + startOffset;
+  gain.gain.setValueAtTime(0.001, t0);
+  gain.gain.linearRampToValueAtTime(peak, t0 + 0.012);
+  gain.gain.exponentialRampToValueAtTime(0.001, t0 + duration);
+  osc.start(t0);
+  osc.stop(t0 + duration + 0.05);
+}
+
+function sfxPlace() {
+  if (!soundEnabled) return;
+  _tone(920, 0, 0.07, 'square', 0.14);
+}
+
+function sfxFlip(count) {
+  if (!soundEnabled || count === 0) return;
+  const n = Math.min(count, 5);
+  for (let i = 0; i < n; i++) _tone(660 + i * 45, i * 0.045, 0.09, 'sine', 0.17);
+}
+
+function sfxElim() {
+  if (!soundEnabled) return;
+  _tone(294, 0,    0.20, 'triangle', 0.24);
+  _tone(220, 0.22, 0.20, 'triangle', 0.21);
+  _tone(165, 0.46, 0.35, 'triangle', 0.19);
+}
+
+function sfxVictory() {
+  if (!soundEnabled) return;
+  const notes = [330, 392, 494, 659, 784];
+  notes.forEach((f, i) => _tone(f, i * 0.13, 0.20, 'sine', 0.21));
+  _tone(659, 0.72, 0.45, 'sine', 0.14);
+  _tone(784, 0.72, 0.45, 'sine', 0.11);
+}
+
+function toggleSound() {
+  soundEnabled = !soundEnabled;
+  document.getElementById('btn-sound').textContent = soundEnabled ? '🔊' : '🔇';
+}
+
 // ─── Bot Logic ────────────────────────────────────────────────
 function scheduleBot() {
   if (demoMode) { scheduleDemoBot(); return; }
@@ -1345,25 +1410,110 @@ function blockScore(botPlayer, move) {
   return Math.min(best, 1);
 }
 
+// Temporarily swap global GS, run fn (sync), restore — safe for depth-2 simulation
+function withGS(tempGS, fn) {
+  const saved = GS;
+  GS = tempGS;
+  try { return fn(); } finally { GS = saved; }
+}
+
+// Pure board simulation: clone gs, apply move, return new gs (no UI, no defeat checks)
+function simApplyMove(gs, player, q, r, isDesperation, targets) {
+  const newGS = cloneGS(gs);
+  withGS(newGS, () => placeAndFlip(player, q, r, isDesperation, targets));
+  return newGS;
+}
+
+// Evaluate a GS state from one player's perspective (higher = better for player)
+function scoreGSForPlayer(gs, player) {
+  if (!gs.playerStatus[player].isAlive) return -9999;
+  return withGS(gs, () => {
+    let score = longestLine(player) * 12;
+    let pieces = 0;
+    for (const [, c] of gs.grid) { if (c.player === player) pieces++; }
+    score += pieces;
+    for (let p = 1; p <= 4; p++) {
+      if (p !== player && gs.playerStatus[p].isAlive) score -= longestLine(p) * 9;
+    }
+    return score;
+  });
+}
+
+// Per-move greedy score (uses current global GS — call inside withGS when needed)
+function greedyMoveScore(player, move, d) {
+  if (move.isClaim) return 40;
+  let score = 0;
+  score += simulateFlipCount(player, move) * d.flipWeight;
+  score += Math.min(2, getDirectAttacks(player, move.q, move.r).length) * d.flipWeight * 1.5;
+  if (willPenetrateEnemyCore(player, move)) score += d.penetrateBonus;
+  if (isAdjacentToOwnCore(player, move)) score += d.coreBonus;
+  score += blockScore(player, move) * d.blockBonus;
+  return score;
+}
+
+// Greedy best move evaluated on an arbitrary GS (opponents use medium-style settings)
+const _SIM_D = { flipWeight: 2, penetrateBonus: 15, coreBonus: 25, blockBonus: 30 };
+function bestGreedyMoveOnGS(gs, player) {
+  return withGS(gs, () => {
+    let moves = getValidMoves(player);
+    if (moves.length === 0) moves = getDesperationMoves(player);
+    if (moves.length === 0) return null;
+    let best = null, bestScore = -Infinity;
+    for (const move of moves) {
+      const s = greedyMoveScore(player, move, _SIM_D);
+      if (s > bestScore) { bestScore = s; best = move; }
+    }
+    return best;
+  });
+}
+
 function evaluateMoves(botPlayer) {
   let validMoves = getValidMoves(botPlayer);
   if (validMoves.length === 0) validMoves = getDesperationMoves(botPlayer);
   const d = DIFFICULTY[currentDifficulty];
+
+  // Hard: 2-ply Paranoid — consider top-10 greedy candidates, simulate all opponents' best replies
+  if (currentDifficulty === 'hard' && validMoves.length > 0) {
+    const candidates = validMoves
+      .map(m => ({ m, s: greedyMoveScore(botPlayer, m, d) }))
+      .sort((a, b) => b.s - a.s).slice(0, 10).map(x => x.m);
+
+    // Build opponent turn order after botPlayer
+    const opponents = [];
+    let cur = botPlayer;
+    for (let i = 0; i < 3; i++) {
+      cur = (cur % 4) + 1;
+      if (GS.playerStatus[cur].isAlive) opponents.push(cur);
+    }
+
+    let bestMove = candidates[0];
+    let bestScore = -Infinity;
+
+    for (const move of candidates) {
+      const botTargets = pickBestTargets(getDirectAttacks(botPlayer, move.q, move.r), 2);
+      let gs = simApplyMove(GS, botPlayer, move.q, move.r, !!move.isDesperation, botTargets);
+
+      // Each opponent takes their greedy best reply
+      for (const opp of opponents) {
+        if (!gs.playerStatus[opp].isAlive) continue;
+        const oppMove = bestGreedyMoveOnGS(gs, opp);
+        if (oppMove) {
+          const oppTargets = withGS(gs, () => pickBestTargets(getDirectAttacks(opp, oppMove.q, oppMove.r), 2));
+          gs = simApplyMove(gs, opp, oppMove.q, oppMove.r, !!oppMove.isDesperation, oppTargets);
+        }
+      }
+
+      const score = scoreGSForPlayer(gs, botPlayer);
+      if (score > bestScore) { bestScore = score; bestMove = move; }
+    }
+    return bestMove;
+  }
+
+  // Easy / Medium: greedy with noise
   let bestMove = null;
   let maxScore = -Infinity;
-
   for (const move of validMoves) {
-    let score = 0;
-    if (move.isClaim) {
-      // Claiming a neutral core is always high priority
-      score += 40;
-    } else {
-      score += simulateFlipCount(botPlayer, move) * d.flipWeight;
-      score += Math.min(2, getDirectAttacks(botPlayer, move.q, move.r).length) * d.flipWeight * 1.5;
-      if (willPenetrateEnemyCore(botPlayer, move)) score += d.penetrateBonus;
-      if (isAdjacentToOwnCore(botPlayer, move)) score += d.coreBonus;
-      score += blockScore(botPlayer, move) * d.blockBonus;
-    }
+    const score = greedyMoveScore(botPlayer, move, d);
     if (score > maxScore) { maxScore = score; bestMove = move; }
   }
 
@@ -1750,6 +1900,7 @@ function updateChainDisplay() {
 }
 
 function showOverlay(winnerPlayer, winType = '勝利！') {
+  sfxVictory();
   document.getElementById('overlay-title').textContent =
     `${PLAYER_NAMES[winnerPlayer]} 勝利！`;
   document.getElementById('overlay-msg').textContent = winType;
