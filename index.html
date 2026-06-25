@@ -1697,7 +1697,7 @@ function updateUI() {
     const scans = GS.playerStatus[p].remainingScans;
     const despLeft = GS.config.maxDesperation - GS.playerStatus[p].desperationUsed;
     const ll = longestLine(p);
-    info.textContent = `核:${coreCount} 連:${ll} 掃:${scans} 緊:${despLeft}`;
+    info.innerHTML = `核心:${coreCount} &nbsp;連線:${ll}<br>掃描:${scans} &nbsp;保命:${despLeft}`;
   });
 
   const p = GS.currentPlayer;
