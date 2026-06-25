@@ -1931,7 +1931,8 @@ window.startGame = async function(diff) {
 let demoMode = false;
 let demoNextTimeout = null;
 let demoHighlight = null;
-let demoHistory = [];
+let demoHistory = [];   // undo stack
+let demoFuture = [];    // redo stack — filled by demoPrev, consumed by demoNext
 let demoCurrentAnnotation = '';
 
 function startDemo() {
@@ -1964,6 +1965,7 @@ function updateDemoPrevBtn() {
 
 function demoPrev() {
   if (!demoMode || demoHistory.length === 0) return;
+  demoFuture.unshift({ gs: cloneGS(GS), annotation: demoCurrentAnnotation, highlight: demoHighlight ? { ...demoHighlight } : null });
   const prev = demoHistory.pop();
   GS = prev.gs;
   demoHighlight = prev.highlight;
@@ -1980,6 +1982,7 @@ function launchDemo() {
   demoMode = true;
   demoHighlight = null;
   demoHistory = [];
+  demoFuture = [];
   demoCurrentAnnotation = '';
   currentDifficulty = 'medium';
   if (botTimeout) { clearTimeout(botTimeout); botTimeout = null; }
@@ -1998,6 +2001,7 @@ function exitDemo() {
   GS = null;
   demoHighlight = null;
   demoHistory = [];
+  demoFuture = [];
   demoCurrentAnnotation = '';
   document.body.classList.remove('demo-active');
   document.getElementById('overlay').classList.remove('show');
@@ -2013,6 +2017,18 @@ function scheduleDemoBot() {
 function demoNext() {
   if (!demoMode || !GS || GS.gameOver) return;
   if (demoNextTimeout) { clearTimeout(demoNextTimeout); demoNextTimeout = null; }
+  if (demoFuture.length > 0) {
+    demoHistory.push({ gs: cloneGS(GS), annotation: demoCurrentAnnotation, highlight: demoHighlight ? { ...demoHighlight } : null });
+    const next = demoFuture.shift();
+    GS = next.gs;
+    demoHighlight = next.highlight;
+    showDemoAnnotation(next.annotation);
+    if (GS.gameOver) document.getElementById('overlay').classList.add('show');
+    updateDemoPrevBtn();
+    updateUI();
+    render();
+    return;
+  }
   const cp = GS.currentPlayer;
   if (GS.playerStatus[cp].isAlive) executeDemoBotTurn(cp);
 }
