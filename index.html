@@ -563,10 +563,10 @@ const PLAYER_COLORS = {
   4: '#f0c040'
 };
 const PLAYER_NAMES = { 1: '紅色', 2: '藍色', 3: '綠色', 4: '黃色' };
-const WIN_LENGTH = 7; // pieces in a line to win
+const WIN_LENGTH = 6; // pieces in a line to win
 const LINE_AXES = [[1,0],[0,1],[1,-1]]; // 3 hex axes (each covers both directions)
-const GRID_RADIUS = 6; // hexes from center
-let HEX_SIZE = 26; // dynamically updated in resizeCanvas
+const GRID_RADIUS = 5; // hexes from center
+let HEX_SIZE = 28; // dynamically updated in resizeCanvas
 
 // ─── State ────────────────────────────────────────────────────
 let GS; // GameState
@@ -1589,7 +1589,7 @@ function updateUI() {
     const scans = GS.playerStatus[p].remainingScans;
     const despLeft = GS.config.maxDesperation - GS.playerStatus[p].desperationUsed;
     const ll = longestLine(p);
-    info.textContent = `核心: ${coreCount} | 最長: ${ll} | 掃描: ${scans} | 緊急: ${despLeft}`;
+    info.textContent = `核:${coreCount} 連:${ll} 掃:${scans} 緊:${despLeft}`;
   });
 
   const p = GS.currentPlayer;
@@ -1673,7 +1673,7 @@ function resizeCanvas() {
   const size = Math.min(window.innerWidth - 20, 660);
   canvas.width = size;
   canvas.height = size;
-  HEX_SIZE = Math.min(26, Math.max(14, Math.floor(size / 22)));
+  HEX_SIZE = Math.min(32, Math.max(16, Math.floor(size / 19)));
   if (GS) render();
 }
 
