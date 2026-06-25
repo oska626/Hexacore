@@ -80,6 +80,58 @@
   }
   #btn-scan.active { background: #60d0ff; color: #000; }
   #btn-restart { background: #4a3a0a; color: #f0c040; border: 1px solid #f0c04044; }
+  /* Elimination toast */
+  #elim-toast {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) scale(0.88);
+    background: rgba(6,8,20,0.97);
+    border: 2px solid #555;
+    border-radius: 16px;
+    padding: 18px 36px;
+    font-size: 1.2rem;
+    font-weight: 700;
+    text-align: center;
+    z-index: 600;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s, transform 0.2s;
+    white-space: nowrap;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+  }
+  #elim-toast.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  /* Scan info */
+  #btn-scan-info {
+    background: transparent; border: 1px solid #60d0ff44;
+    color: #60d0ff99; padding: 7px 10px; font-size: 0.8rem;
+  }
+  #btn-scan-info:hover { color: #60d0ff; border-color: #60d0ff88; transform: none; }
+  #scan-info-card {
+    display: none;
+    position: fixed;
+    bottom: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(10,18,30,0.97);
+    border: 1px solid #60d0ff44;
+    border-radius: 12px;
+    padding: 14px 18px;
+    max-width: 320px;
+    width: 90vw;
+    font-size: 0.88rem;
+    color: #aac8e8;
+    line-height: 1.6;
+    z-index: 400;
+    text-align: left;
+  }
+  #scan-info-card.show { display: block; }
+  #scan-info-card h4 { color: #60d0ff; margin: 0 0 8px; font-size: 0.95rem; }
+  #scan-info-card .close-btn {
+    float: right; background: none; border: none;
+    color: #60d0ff88; font-size: 1.1rem; cursor: pointer;
+    padding: 0; margin: -4px -4px 0 8px; line-height: 1;
+  }
   #btn-attack-ok {
     background: #1a3a10; color: #88ff66; border: 2px solid #88ff6666;
     padding: 9px 28px; font-size: 1rem; letter-spacing: 1px;
@@ -456,8 +508,17 @@
 <div id="canvas-wrap">
   <canvas id="gameCanvas"></canvas>
 </div>
+<div id="elim-toast"></div>
+<div id="scan-info-card">
+  <button class="close-btn" onclick="toggleScanInfo()">✕</button>
+  <h4>🔍 雷達掃描</h4>
+  懸停在空格上，預覽落子後會翻哪些棋（射線顯示）。<br><br>
+  每位玩家共 <b>3 次</b>，懸停時才消耗，點擊關閉掃描模式不扣次數。<br><br>
+  <span style="color:#88ccff">用途：落子前確認翻棋路線，避免誤判。</span>
+</div>
 <div id="bottom-bar">
   <button id="btn-scan">🔍 雷達掃描 (3)</button>
+  <button id="btn-scan-info" onclick="toggleScanInfo()" title="掃描說明">ℹ</button>
   <button id="btn-attack-ok" onclick="confirmTargets()">✓ OK</button>
   <button id="btn-restart">↩ 重新開始</button>
 </div>
@@ -974,10 +1035,30 @@ function eliminatePlayer(player) {
     GS.counterChain = generateCounterChain(alive);
     GS.revealedRelationships = new Set();
     updateChainDisplay();
+    showEliminationToast(player, true);
     setStatus(`${PLAYER_NAMES[player]}玩家被淘汰！克制鏈重新洗牌！`);
   } else {
+    showEliminationToast(player, false);
     setStatus(`${PLAYER_NAMES[player]}玩家被淘汰！`);
   }
+}
+
+let _elimToastTimer = null;
+function showEliminationToast(player, reshuffled) {
+  const toast = document.getElementById('elim-toast');
+  const color = PLAYER_COLORS[player];
+  toast.style.borderColor = color + '88';
+  toast.style.color = color;
+  toast.innerHTML = `💀 ${PLAYER_NAMES[player]} 被淘汰${reshuffled ? '<br><span style="font-size:0.8em;color:#aaa">克制鏈重新洗牌</span>' : ''}`;
+  toast.classList.add('show');
+  if (_elimToastTimer) clearTimeout(_elimToastTimer);
+  _elimToastTimer = setTimeout(() => {
+    toast.classList.remove('show');
+  }, 2500);
+}
+
+function toggleScanInfo() {
+  document.getElementById('scan-info-card').classList.toggle('show');
 }
 
 // ─── Connection Check ─────────────────────────────────────────
