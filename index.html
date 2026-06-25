@@ -1848,7 +1848,7 @@ function startDemo() {
   for (let p = 1; p <= 4; p++) GS.playerStatus[p].isBot = true;
   document.body.classList.add('demo-active');
   document.getElementById('demo-panel').style.display = 'block';
-  showDemoAnnotation('📖 <b>遊戲說明示範</b><br><span style="color:#aaa;font-size:0.85em">觀看四名 Bot 自動對戰，每步棋都有規則說明。點「下一步」可跳過等待。</span>');
+  showDemoAnnotation('📖 <b>遊戲說明示範</b><br><span style="color:#aaa;font-size:0.85em">點「下一步」逐步觀看 Bot 對戰，每步棋都有規則說明。</span>');
 }
 
 function exitDemo() {
@@ -1863,11 +1863,7 @@ function exitDemo() {
 }
 
 function scheduleDemoBot() {
-  if (!demoMode || !GS || GS.gameOver) return;
-  const cp = GS.currentPlayer;
-  if (GS.playerStatus[cp].isAlive) {
-    demoNextTimeout = setTimeout(() => executeDemoBotTurn(cp), 2500);
-  }
+  // No auto-advance — user must click 下一步
 }
 
 function demoNext() {
